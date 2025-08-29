@@ -23,26 +23,69 @@ async function main() {
       // First ensure we're logged in
       await linkedInLogin.execute();
       
-      // Generate some technical content for the post
-      const technicalContent = `🚀 Tech Insight of the Day:
+      // Generate unique content with timestamp and random elements
+      const topics = [
+        'AI and Machine Learning',
+        'Web Automation',
+        'Browser Testing',
+        'DevOps Practices',
+        'Software Architecture',
+        'Cloud Computing',
+        'API Design',
+        'Performance Optimization'
+      ];
 
-Just implemented a fascinating AI-powered browser automation solution using Playwright and OpenAI! 
+      const insights = [
+        'Reducing manual testing time by 80%',
+        'Improving reliability with semantic matching',
+        'Enhancing user experience through automation',
+        'Streamlining deployment workflows',
+        'Building scalable solutions',
+        'Optimizing resource utilization',
+        'Implementing best practices'
+      ];
 
-Key features:
-• Semantic element matching using LLMs
-• Context-aware automation
-• Session persistence for auth
-• Robust error handling
+      const challenges = [
+        'handling dynamic web content',
+        'managing state across sessions',
+        'ensuring cross-browser compatibility',
+        'maintaining test stability',
+        'scaling automated solutions',
+        'optimizing performance',
+        'reducing false positives'
+      ];
 
-Tech stack:
-- Node.js
-- Playwright
-- OpenAI GPT
-- Modern async/await patterns
+      const randomElement = arr => arr[Math.floor(Math.random() * arr.length)];
+      const timestamp = new Date().toLocaleString('en-US', { 
+        hour: 'numeric', 
+        minute: 'numeric',
+        hour12: true 
+      });
 
-What's next? Exploring ways to make web automation more intelligent and maintainable. 
+      const technicalContent = `🚀 ${randomElement(topics)} Update - ${timestamp}
 
-#TechInnovation #AI #Automation #WebDevelopment #JavaScript`;
+Just tackled an interesting challenge in ${randomElement(topics).toLowerCase()}, focusing on ${randomElement(challenges)}!
+
+Key Achievement: ${randomElement(insights)}
+
+Technical Deep Dive:
+• Implemented advanced ${randomElement(topics).toLowerCase()} patterns
+• Leveraged modern async/await for better flow control
+• Enhanced error handling with contextual recovery
+• Added intelligent retry mechanisms
+• Optimized resource management
+
+Current Stack:
+- Node.js with ES Modules
+- Playwright for reliable automation
+- OpenAI GPT for semantic understanding
+- Custom middleware for session management
+
+Learning: The key to robust automation is understanding the balance between speed and reliability.
+
+What are your thoughts on ${randomElement(topics).toLowerCase()}? Share your experiences! 🤔
+
+#${randomElement(topics).replace(/\s+/g, '')} #TechInnovation #SoftwareEngineering #${new Date().getFullYear()}Trends`;
 
       // Create the post
       await createPost.execute(technicalContent);
