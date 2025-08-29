@@ -1,0 +1,15 @@
+{
+  "name": "ai-browser-automation",
+  "version": "1.0.0",
+  "description": "AI-powered semantic element matching for browser automation",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "playwright": "^1.42.1",
+    "dotenv": "^16.4.5",
+    "openai": "^4.28.0"
+  },
+  "type": "module"
+}
