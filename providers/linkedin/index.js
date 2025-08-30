@@ -1,8 +1,10 @@
 import { BrowserHelper } from '../../helpers/browser.js';
+import { AIMatcher } from '../../helpers/aiMatcher.js';
 
 export default class LinkedInProvider {
   constructor(browserHelper) {
     this.browser = browserHelper;
+    this.aiMatcher = new AIMatcher();
   }
 
   async login() {
@@ -244,48 +246,29 @@ export default class LinkedInProvider {
       console.log('✅ Post modal appeared');
       
       // Find and fill the post textarea
-      console.log('🔍 Looking for post textarea...');
+      console.log('🔍 Looking for post textarea using AI...');
       
       // Wait a bit more for the textarea to be fully rendered
       await this.browser.page.waitForTimeout(1000);
       
-      // Look for the specific LinkedIn post textarea div
-      const postTextarea = await this.browser.page.$('div.ql-editor.ql-blank[contenteditable="true"], div[class*="ql-editor"][contenteditable="true"]') ||
-                          await this.browser.page.$('div[contenteditable="true"][data-placeholder*="what"], div[contenteditable="true"][aria-placeholder*="what"]') ||
-                          await this.browser.page.$$('div[contenteditable="true"]').then(async elements => {
-                            for (const element of elements) {
-                              const placeholder = await element.getAttribute('data-placeholder') || await element.getAttribute('aria-placeholder') || '';
-                              const className = await element.getAttribute('class') || '';
-                              const role = await element.getAttribute('role') || '';
-                              console.log(`Found element: class="${className}", placeholder="${placeholder}", role="${role}"`);
-                              
-                              if (className.includes('ql-editor') || 
-                                  placeholder.toLowerCase().includes('what') || 
-                                  placeholder.toLowerCase().includes('talk') ||
-                                  role === 'textbox') {
-                                console.log(`✅ Found post textarea: class="${className}", placeholder="${placeholder}", role="${role}"`);
-                                return element;
-                              }
-                            }
-                            return null;
-                          });
+      // Get all potential input elements
+      const potentialElements = await this.browser.page.$$('div[contenteditable="true"], textarea, input[type="text"]');
+      console.log(`Found ${potentialElements.length} potential input elements`);
       
-      if (!postTextarea) {
-        console.log('❌ Could not find post textarea');
-        console.log('Available contenteditable elements:');
-        const contentEditableElements = await this.browser.page.$$('div[contenteditable="true"]');
-        for (let i = 0; i < contentEditableElements.length; i++) {
-          const element = contentEditableElements[i];
-          const className = await element.getAttribute('class') || '';
-          const placeholder = await element.getAttribute('data-placeholder') || await element.getAttribute('aria-placeholder') || '';
-          const role = await element.getAttribute('role') || '';
-          console.log(`Element ${i}: class="${className}", placeholder="${placeholder}", role="${role}"`);
-        }
-        throw new Error('Could not find post textarea');
+      if (potentialElements.length === 0) {
+        throw new Error('No input elements found on the page');
       }
       
-      console.log('✅ Post textarea found');
-      const postContent = this.generatePostContent();
+      // Use AI to find the best matching post textarea
+      const bestMatch = await this.aiMatcher.findBestMatch(
+        "Find the main text input field where users type their LinkedIn posts. Look for elements that are contenteditable divs or textareas with placeholders about 'what do you want to talk about' or similar post creation text.",
+        potentialElements,
+        this.browser
+      );
+      
+      console.log(`✅ AI found best match: ${bestMatch.explanation}`);
+      
+      const postTextarea = bestMatch.element;
       
       // Clear the existing content first
       await postTextarea.click();
@@ -293,24 +276,33 @@ export default class LinkedInProvider {
       await this.browser.page.keyboard.press('Delete');
       
       // Fill the content
+      const postContent = this.generatePostContent();
       await postTextarea.fill(postContent);
       console.log('✅ Post content filled');
       
       // Click Post button
-      const postButton = await this.browser.page.$('button[type="submit"]') ||
-                        await this.browser.page.$$('button').then(async buttons => {
-                          for (const button of buttons) {
-                            const text = await button.textContent();
-                            if (text.toLowerCase().includes('post')) {
-                              return button;
-                            }
-                          }
-                          return null;
-                        });
-      if (!postButton) {
-        throw new Error('Could not find Post button');
+      console.log('🔍 Looking for post submit button using AI...');
+      
+      // Get all potential submit buttons
+      const potentialSubmitButtons = await this.browser.page.$$('button[type="submit"], button, input[type="submit"]');
+      console.log(`Found ${potentialSubmitButtons.length} potential submit buttons`);
+      
+      if (potentialSubmitButtons.length === 0) {
+        throw new Error('No submit buttons found on the page');
       }
       
+      // Use AI to find the correct post submit button (not visibility controls)
+      const submitButtonMatch = await this.aiMatcher.findBestMatch(
+        "Find the main submit button to actually post/publish the LinkedIn post content. This should be a button that submits the post, NOT a button that controls post visibility like 'Post to anyone' or 'Post to connections'. Look for buttons with text like 'Post', 'Publish', 'Share', or similar submission actions. Avoid buttons that are dropdowns, visibility controls, or settings.",
+        potentialSubmitButtons,
+        this.browser
+      );
+      
+      console.log(`✅ AI found best submit button match: ${submitButtonMatch.explanation}`);
+      
+      const postButton = submitButtonMatch.element;
+      
+      console.log('✅ Post submit button found, clicking...');
       await postButton.click();
       console.log('✅ Post submitted successfully!');
       

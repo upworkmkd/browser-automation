@@ -85,4 +85,43 @@ export class BrowserHelper {
       console.error('❌ Error closing browser:', error.message);
     }
   }
+
+  async getElementContext(element) {
+    const contextData = {
+      innerText: await element.innerText(),
+      ariaLabel: await element.getAttribute('aria-label'),
+      placeholder: await element.getAttribute('placeholder'),
+      type: await element.getAttribute('type'),
+      role: await element.getAttribute('role'),
+      name: await element.getAttribute('name'),
+      id: await element.getAttribute('id'),
+      className: await element.getAttribute('class'),
+      dataPlaceholder: await element.getAttribute('data-placeholder'),
+      ariaPlaceholder: await element.getAttribute('aria-placeholder'),
+      nearbyText: []
+    };
+
+    // Get text from nearby elements
+    const nearby = await element.evaluate(el => {
+      const range = 2; // Look at elements within 2 levels up and siblings
+      const texts = [];
+      let current = el;
+      
+      // Look up the tree
+      for (let i = 0; i < range; i++) {
+        current = current.parentElement;
+        if (!current) break;
+        for (const child of current.childNodes) {
+          if (child.nodeType === 3 && child.textContent.trim()) { // Text node
+            texts.push(child.textContent.trim());
+          }
+        }
+      }
+      
+      return texts;
+    });
+
+    contextData.nearbyText = nearby;
+    return contextData;
+  }
 }

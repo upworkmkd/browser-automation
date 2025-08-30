@@ -323,9 +323,16 @@ export default class QuoraProvider {
 
       console.log('🎉 Question creation completed successfully!');
       
-      // Close browser after successful completion
-      console.log('🔒 Closing browser...');
-      await this.browser.close();
+      // Check if auto-close is enabled
+      const autoCloseBrowser = process.env.AUTO_CLOSE_BROWSER === 'true';
+      if (autoCloseBrowser) {
+        console.log('🔒 Auto-close enabled, closing browser...');
+        await this.browser.close();
+      } else {
+        console.log('🔍 Auto-close disabled, browser will stay open for inspection.');
+        console.log('Press Ctrl+C when done.');
+        await new Promise(() => {}); // Keep browser open indefinitely
+      }
       
     } catch (error) {
       console.error('❌ Question creation failed:', error.message);

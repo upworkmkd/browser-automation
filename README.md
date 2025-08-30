@@ -68,6 +68,13 @@ QUORA_PASSWORD=your_quora_password
 ```env
 HEADLESS=false
 SLOWMO=100
+AUTO_CLOSE_BROWSER=false
+```
+
+### Browser Behavior Settings (Optional)
+```env
+# Set to 'true' to automatically close browser on success, 'false' to keep it open
+AUTO_CLOSE_BROWSER=false
 ```
 
 ## 🎯 Usage
@@ -144,7 +151,7 @@ For each selected platform:
 - Browser stays open on failure for manual inspection
 - Graceful shutdown handling
 
-## �� Content Generation
+## 📝 Content Generation
 
 The service automatically generates unique content for each post:
 

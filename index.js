@@ -94,8 +94,17 @@ async function main() {
     const allSuccess = results.every(r => r.status === 'success');
     if (allSuccess) {
       console.log('\n🎉 All platforms completed successfully!');
-      console.log('🔒 Closing browser...');
-      await browserHelper.close();
+      
+      // Check if auto-close is enabled
+      const autoCloseBrowser = process.env.AUTO_CLOSE_BROWSER === 'true';
+      if (autoCloseBrowser) {
+        console.log('🔒 Auto-close enabled, closing browser...');
+        await browserHelper.close();
+      } else {
+        console.log('🔍 Auto-close disabled, browser will stay open for inspection.');
+        console.log('Press Ctrl+C when done.');
+        await new Promise(() => {}); // Keep browser open indefinitely
+      }
     } else {
       console.log('\n⚠️  Some platforms failed. Browser will stay open for inspection.');
       console.log('Press Ctrl+C when done.');
