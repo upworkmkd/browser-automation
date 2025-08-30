@@ -1,7 +1,4 @@
 import { chromium } from 'playwright';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 export class BrowserHelper {
   constructor() {
@@ -11,75 +8,81 @@ export class BrowserHelper {
   }
 
   async init() {
-    this.browser = await chromium.launch({
-      headless: process.env.HEADLESS === 'true',
-      slowMo: parseInt(process.env.SLOWMO || '50')
-    });
-
-    // Try to load stored session state
     try {
-      this.context = await this.browser.newContext({
-        storageState: './auth.json'
+      console.log('🌐 Initializing browser...');
+      
+      this.browser = await chromium.launch({
+        headless: false,
+        slowMo: 100
       });
-      console.log('Loaded stored authentication state');
+      
+      // Try to load existing session
+      try {
+        this.context = await this.browser.newContext({
+          storageState: './auth.json'
+        });
+        console.log('✅ Loaded existing session');
+      } catch (error) {
+        this.context = await this.browser.newContext();
+        console.log('🆕 Created new session');
+      }
+      
+      this.page = await this.context.newPage();
+      console.log('✅ Browser initialized successfully');
+      
     } catch (error) {
-      console.log('No stored auth state found, creating new context');
-      this.context = await this.browser.newContext();
-    }
-    
-    this.page = await this.context.newPage();
-  }
-
-  async saveAuthState() {
-    if (this.context) {
-      await this.context.storageState({ path: './auth.json' });
-      console.log('Saved authentication state');
+      console.error('❌ Browser initialization failed:', error.message);
+      throw error;
     }
   }
 
   async goto(url) {
     try {
-      // Use { waitUntil: 'commit' } for faster initial load
-      await this.page.goto(url, { 
-        waitUntil: 'commit',
-        timeout: 30000 
-      });
+      await this.page.goto(url, { waitUntil: 'commit' });
       
-      // Then wait for the page to be more fully loaded
+      // Wait for either domcontentloaded or networkidle
       await Promise.race([
         this.page.waitForLoadState('domcontentloaded', { timeout: 10000 }),
-        this.page.waitForLoadState('networkidle', { timeout: 10000 })
+        this.page.waitForLoadState('networkidle', { timeout: 15000 })
       ]).catch(() => {
-        console.log('Page load wait timed out, continuing anyway...');
+        console.log('⚠️  Page load timeout, continuing...');
       });
+      
     } catch (error) {
-      if (error.name === 'TimeoutError') {
-        console.log('Initial page load timed out, checking if page is usable...');
-        // Check if we can still interact with the page
-        const pageContent = await this.page.content().catch(() => '');
-        if (!pageContent) {
-          throw new Error('Page load failed completely');
-        }
-      } else {
-        throw error;
-      }
+      console.error(`❌ Navigation to ${url} failed:`, error.message);
+      throw error;
     }
-  }
-
-  async close() {
-    await this.context?.close();
-    await this.browser?.close();
   }
 
   async waitForNavigation() {
     try {
-      // Wait for either networkidle or domcontentloaded, whichever comes first
       await Promise.race([
-        this.page.waitForLoadState('networkidle', { timeout: 10000 }),
+        this.page.waitForLoadState('networkidle', { timeout: 15000 }),
         this.page.waitForLoadState('domcontentloaded', { timeout: 10000 })
-      ]);
+      ]).catch(() => {
+        console.log('⚠️  Navigation timeout, continuing...');
+      });
     } catch (error) {
-      console.log('Navigation wait timed out, continuing anyway...');
+      console.error('❌ Navigation wait failed:', error.message);
+    }
+  }
+
+  async saveAuthState() {
+    try {
+      await this.context.storageState({ path: './auth.json' });
+      console.log('💾 Session state saved');
+    } catch (error) {
+      console.error('❌ Failed to save session state:', error.message);
+    }
+  }
+
+  async close() {
+    try {
+      if (this.context) await this.context.close();
+      if (this.browser) await this.browser.close();
+      console.log('🔒 Browser closed');
+    } catch (error) {
+      console.error('❌ Error closing browser:', error.message);
     }
   }
 
@@ -92,6 +95,9 @@ export class BrowserHelper {
       role: await element.getAttribute('role'),
       name: await element.getAttribute('name'),
       id: await element.getAttribute('id'),
+      className: await element.getAttribute('class'),
+      dataPlaceholder: await element.getAttribute('data-placeholder'),
+      ariaPlaceholder: await element.getAttribute('aria-placeholder'),
       nearbyText: []
     };
 
@@ -119,5 +125,3 @@ export class BrowserHelper {
     return contextData;
   }
 }
-
-export const browserHelper = new BrowserHelper();

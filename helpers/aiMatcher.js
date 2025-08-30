@@ -23,13 +23,14 @@ export class AIMatcher {
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
         messages: [{
           role: "system",
           content: "You are a specialized AI that matches web elements based on semantic meaning. Your task is to analyze web elements and their context to find the best match for a given instruction. Always respond in this exact format:\n\n" +
                    "Index: [number]\n" +
                    "Explanation: [detailed reason for choosing this element]\n\n" +
-                   "Choose the element that best matches the instruction based on all available context (inner text, aria labels, placeholders, nearby text, etc). If no good match is found, explain why."
+                   "Choose the element that best matches the instruction based on all available context (inner text, aria labels, placeholders, nearby text, etc). If no good match is found, explain why.\n\n" +
+                   "IMPORTANT: When looking for action buttons (like submit, post, publish), prioritize buttons that perform the main action over buttons that control settings, visibility, or are part of dropdowns. Look for primary action buttons that complete the main task."
         }, {
           role: "user",
           content: prompt

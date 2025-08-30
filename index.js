@@ -1,102 +1,137 @@
-import { browserHelper } from './helpers/browser.js';
-import { linkedInLogin } from './actions/login.js';
-import { createPost } from './actions/createPost.js';
-import dotenv from 'dotenv';
+import 'dotenv/config';
+import { BrowserHelper } from './helpers/browser.js';
+import LinkedInProvider from './providers/linkedin/index.js';
+import QuoraProvider from './providers/quora/index.js';
+import ContentGenerator from './services/contentGenerator.js';
 
-dotenv.config();
-
-async function main() {
-  const instruction = process.argv[2];
-  if (!instruction) {
-    console.error('Please provide an instruction as a command line argument');
-    process.exit(1);
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const platforms = [];
+  
+  if (args.includes('--linkedin')) platforms.push('linkedin');
+  if (args.includes('--quora')) platforms.push('quora');
+  if (args.includes('--reddit')) platforms.push('reddit');
+  if (args.includes('--facebook')) platforms.push('facebook');
+  
+  if (platforms.length === 0) {
+    console.log('🚀 Browser Automation Service');
+    console.log('Usage: npm start -- --linkedin --quora --reddit --facebook');
+    console.log('Or: node index.js --linkedin --quora');
+    console.log('\nAvailable platforms: linkedin, quora, reddit, facebook');
+    process.exit(0);
   }
+  
+  return platforms;
+}
 
+async function postToPlatform(platform, browserHelper) {
   try {
-    // Initialize browser
-    await browserHelper.init();
-
-    // Parse instruction and execute appropriate action
-    if (instruction.toLowerCase().includes('linkedin') && instruction.toLowerCase().includes('login')) {
-      await linkedInLogin.execute();
-    } else if (instruction.toLowerCase().includes('post')) {
-      // First ensure we're logged in
-      await linkedInLogin.execute();
-      
-      // Generate unique content with timestamp and random elements
-      const topics = [
-        'AI and Machine Learning',
-        'Web Automation',
-        'Browser Testing',
-        'DevOps Practices',
-        'Software Architecture',
-        'Cloud Computing',
-        'API Design',
-        'Performance Optimization'
-      ];
-
-      const insights = [
-        'Reducing manual testing time by 80%',
-        'Improving reliability with semantic matching',
-        'Enhancing user experience through automation',
-        'Streamlining deployment workflows',
-        'Building scalable solutions',
-        'Optimizing resource utilization',
-        'Implementing best practices'
-      ];
-
-      const challenges = [
-        'handling dynamic web content',
-        'managing state across sessions',
-        'ensuring cross-browser compatibility',
-        'maintaining test stability',
-        'scaling automated solutions',
-        'optimizing performance',
-        'reducing false positives'
-      ];
-
-      const randomElement = arr => arr[Math.floor(Math.random() * arr.length)];
-      const timestamp = new Date().toLocaleString('en-US', { 
-        hour: 'numeric', 
-        minute: 'numeric',
-        hour12: true 
-      });
-
-      const technicalContent = `🚀 ${randomElement(topics)} Update - ${timestamp}
-
-Just tackled an interesting challenge in ${randomElement(topics).toLowerCase()}, focusing on ${randomElement(challenges)}!
-
-Key Achievement: ${randomElement(insights)}
-
-Technical Deep Dive:
-• Implemented advanced ${randomElement(topics).toLowerCase()} patterns
-• Leveraged modern async/await for better flow control
-• Enhanced error handling with contextual recovery
-• Added intelligent retry mechanisms
-• Optimized resource management
-
-Current Stack:
-- Node.js with ES Modules
-- Playwright for reliable automation
-- OpenAI GPT for semantic understanding
-- Custom middleware for session management
-
-Learning: The key to robust automation is understanding the balance between speed and reliability.
-
-What are your thoughts on ${randomElement(topics).toLowerCase()}? Share your experiences! 🤔
-
-#${randomElement(topics).replace(/\s+/g, '')} #TechInnovation #SoftwareEngineering #${new Date().getFullYear()}Trends`;
-
-      // Create the post
-      await createPost.execute(technicalContent);
-    } else {
-      console.error('Unsupported instruction:', instruction);
+    console.log(`\n📱 Processing ${platform.toUpperCase()}...`);
+    
+    let provider;
+    switch (platform) {
+      case 'linkedin':
+        provider = new LinkedInProvider(browserHelper);
+        await provider.login();
+        await provider.createPost();
+        break;
+      case 'quora':
+        provider = new QuoraProvider(browserHelper);
+        await provider.login();
+        await provider.addQuestion();
+        break;
+      case 'reddit':
+        console.log('⚠️  Reddit automation not yet implemented');
+        break;
+      case 'facebook':
+        console.log('⚠️  Facebook automation not yet implemented');
+        break;
+      default:
+        console.log(`⚠️  Unknown platform: ${platform}`);
     }
+    
+    console.log(`✅ ${platform.toUpperCase()} completed successfully!`);
+    
   } catch (error) {
-    console.error('Error executing instruction:', error);
-  } finally {
-    await browserHelper.close();
+    console.error(`❌ ${platform.toUpperCase()} failed:`, error.message);
+    throw error;
   }
 }
 
-main();
+async function main() {
+  let browserHelper;
+  let results = [];
+  
+  try {
+    console.log('🚀 Starting Browser Automation Service...');
+    
+    // Initialize browser
+    browserHelper = new BrowserHelper();
+    await browserHelper.init();
+    
+    // Parse command line arguments
+    const platforms = parseArgs();
+    console.log(`📋 Platforms to process: ${platforms.join(', ')}`);
+    
+    // Process platforms sequentially
+    for (const platform of platforms) {
+      try {
+        await postToPlatform(platform, browserHelper);
+        results.push({ platform, status: 'success' });
+      } catch (error) {
+        console.error(`❌ Failed to process ${platform}:`, error.message);
+        results.push({ platform, status: 'failed', error: error.message });
+      }
+    }
+    
+    // Summary
+    console.log('\n📊 Automation Summary:');
+    results.forEach(result => {
+      const status = result.status === 'success' ? '✅' : '❌';
+      console.log(`${status} ${result.platform.toUpperCase()}: ${result.status}`);
+    });
+    
+    const allSuccess = results.every(r => r.status === 'success');
+    if (allSuccess) {
+      console.log('\n🎉 All platforms completed successfully!');
+      
+      // Check if auto-close is enabled
+      const autoCloseBrowser = process.env.AUTO_CLOSE_BROWSER === 'true';
+      if (autoCloseBrowser) {
+        console.log('🔒 Auto-close enabled, closing browser...');
+        await browserHelper.close();
+      } else {
+        console.log('🔍 Auto-close disabled, browser will stay open for inspection.');
+        console.log('Press Ctrl+C when done.');
+        await new Promise(() => {}); // Keep browser open indefinitely
+      }
+    } else {
+      console.log('\n⚠️  Some platforms failed. Browser will stay open for inspection.');
+      console.log('Press Ctrl+C when done.');
+      await new Promise(() => {}); // Keep browser open indefinitely
+    }
+    
+  } catch (error) {
+    console.error('❌ Fatal error:', error.message);
+    console.log('\n🔍 Browser will stay open for inspection.');
+    console.log('Press Ctrl+C when done.');
+    await new Promise(() => {}); // Keep browser open indefinitely
+  }
+}
+
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n🛑 Shutting down gracefully...');
+  process.exit(0);
+});
+
+// Run the main function
+main().catch(error => {
+  console.error('❌ Unhandled error:', error);
+  process.exit(1);
+});
