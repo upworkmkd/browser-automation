@@ -4,7 +4,8 @@
   "description": "AI-powered semantic element matching for browser automation",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "post": "node index.js"
   },
   "dependencies": {
     "playwright": "^1.42.1",
