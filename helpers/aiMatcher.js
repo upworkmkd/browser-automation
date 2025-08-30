@@ -23,7 +23,7 @@ export class AIMatcher {
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
         messages: [{
           role: "system",
           content: "You are a specialized AI that matches web elements based on semantic meaning. Your task is to analyze web elements and their context to find the best match for a given instruction. Always respond in this exact format:\n\n" +

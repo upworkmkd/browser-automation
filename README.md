@@ -50,7 +50,19 @@ Create a `.env` file in the root directory with the following variables:
 ### OpenAI Configuration
 ```env
 OPENAI_API_KEY=sk-your-openai-api-key-here
+OPENAI_MODEL=gpt-4o-mini
 ```
+
+#### Available OpenAI Models
+
+- **`gpt-4o-mini`** (Default): Fastest and most cost-effective, good for basic element matching
+- **`gpt-4o`**: Balanced performance and cost, better reasoning capabilities
+- **`gpt-4-turbo`**: Most capable model, best for complex element analysis (highest cost)
+
+Choose based on your needs:
+- **Development/Testing**: Use `gpt-4o-mini` for cost efficiency
+- **Production**: Use `gpt-4o` or `gpt-4-turbo` for better accuracy
+- **Budget Conscious**: Stick with `gpt-4o-mini` (default)
 
 ### LinkedIn Configuration
 ```env
