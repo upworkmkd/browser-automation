@@ -89,29 +89,44 @@ AUTO_CLOSE_BROWSER=false
 AUTO_CLOSE_BROWSER=false
 ```
 
-## 🎯 Usage
+## 🚀 Usage
 
-### Basic Usage
+### Basic Commands
 
-**Post to LinkedIn only**:
 ```bash
-npm start -- --linkedin
-```
-
-**Post to Quora only**:
-```bash
+# Create questions on Quora (default behavior)
 npm start -- --quora
+
+# Create posts on Quora
+npm start -- --quora --post
+
+# Create questions on Quora (explicit)
+npm start -- --quora --question
+
+# Post to LinkedIn
+npm start -- --linkedin
+
+# Post to multiple platforms
+npm start -- --linkedin --quora --post
+
+# Run directly with Node.js
+node index.js --quora --post
+node index.js --linkedin --quora --question
 ```
 
-**Post to multiple platforms**:
-```bash
-npm start -- --linkedin --quora
-```
+### Quora Actions
 
-**Direct Node.js execution**:
-```bash
-node index.js --linkedin --quora
-```
+Quora supports two types of content creation:
+
+1. **Questions** (`--quora` or `--quora --question`):
+   - Creates technical questions about AI, Node.js, PHP, MySQL, MongoDB, etc.
+   - Handles suggestion popups, confirmation screens, and skip screens
+   - Uses AI-powered element detection for robust automation
+
+2. **Posts** (`--quora --post`):
+   - Creates detailed technical posts (500-550 words)
+   - Covers topics like AI trends, development best practices, cloud services
+   - Includes markdown formatting, hashtags, and professional structure
 
 ### Available Platforms
 

@@ -7,21 +7,40 @@ import ContentGenerator from './services/contentGenerator.js';
 function parseArgs() {
   const args = process.argv.slice(2);
   const platforms = [];
+  let quoraAction = 'question'; // Default to question creation
   
-  if (args.includes('--linkedin')) platforms.push('linkedin');
-  if (args.includes('--quora')) platforms.push('quora');
-  if (args.includes('--reddit')) platforms.push('reddit');
-  if (args.includes('--facebook')) platforms.push('facebook');
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    
+    if (arg === '--linkedin') {
+      platforms.push('linkedin');
+    } else if (arg === '--quora') {
+      platforms.push('quora');
+      // Check if next argument specifies the action
+      if (i + 1 < args.length && args[i + 1] === '--question') {
+        quoraAction = 'question';
+        i++; // Skip the next argument
+      } else if (i + 1 < args.length && args[i + 1] === '--post') {
+        quoraAction = 'post';
+        i++; // Skip the next argument
+      }
+    } else if (arg === '--reddit') {
+      platforms.push('reddit');
+    } else if (arg === '--facebook') {
+      platforms.push('facebook');
+    }
+  }
   
   if (platforms.length === 0) {
     console.log('🚀 Browser Automation Service');
     console.log('Usage: npm start -- --linkedin --quora --reddit --facebook');
     console.log('Or: node index.js --linkedin --quora');
+    console.log('For Quora: npm start -- --quora --question (default) or npm start -- --quora --post');
     console.log('\nAvailable platforms: linkedin, quora, reddit, facebook');
     process.exit(0);
   }
   
-  return platforms;
+  return { platforms, quoraAction };
 }
 
 async function postToPlatform(platform, browserHelper) {
@@ -70,14 +89,35 @@ async function main() {
     await browserHelper.init();
     
     // Parse command line arguments
-    const platforms = parseArgs();
+    const { platforms, quoraAction } = parseArgs();
     console.log(`📋 Platforms to process: ${platforms.join(', ')}`);
+    if (platforms.includes('quora')) {
+      console.log(`📝 Quora action: ${quoraAction}`);
+    }
     
     // Process platforms sequentially
     for (const platform of platforms) {
       try {
-        await postToPlatform(platform, browserHelper);
-        results.push({ platform, status: 'success' });
+        if (platform === 'quora') {
+          console.log('📱 Processing QUORA...');
+          const quoraProvider = new QuoraProvider(browserHelper);
+          
+          // Login first
+          await quoraProvider.login();
+          
+          // Check if we should create a question or post
+          if (quoraAction === 'post') {
+            await quoraProvider.createPost();
+          } else {
+            // Default to question creation (existing functionality)
+            await quoraProvider.addQuestion();
+          }
+          
+          results.push({ platform: 'quora', success: true });
+        } else {
+          await postToPlatform(platform, browserHelper);
+          results.push({ platform, status: 'success' });
+        }
       } catch (error) {
         console.error(`❌ Failed to process ${platform}:`, error.message);
         results.push({ platform, status: 'failed', error: error.message });
@@ -87,11 +127,16 @@ async function main() {
     // Summary
     console.log('\n📊 Automation Summary:');
     results.forEach(result => {
-      const status = result.status === 'success' ? '✅' : '❌';
-      console.log(`${status} ${result.platform.toUpperCase()}: ${result.status}`);
+      if (result.platform === 'quora') {
+        const status = result.success ? '✅' : '❌';
+        console.log(`${status} ${result.platform.toUpperCase()}: ${result.success ? 'success' : 'failed'}`);
+      } else {
+        const status = result.status === 'success' ? '✅' : '❌';
+        console.log(`${status} ${result.platform.toUpperCase()}: ${result.status}`);
+      }
     });
     
-    const allSuccess = results.every(r => r.status === 'success');
+    const allSuccess = results.every(r => r.success || r.status === 'success');
     if (allSuccess) {
       console.log('\n🎉 All platforms completed successfully!');
       
