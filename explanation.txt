@@ -1,17 +1,9 @@
-# AI-Powered Browser Automation Tool - Demo Video Script
-## Duration: 10-14 minutes
+hello , 
 
----
-
-## INTRO SECTION (0:00 - 1:30)
-
-**[Show title screen with tool name]**
-
-"Welcome to this comprehensive demo of our AI-Powered Browser Automation Tool - a revolutionary solution that combines artificial intelligence with browser automation to handle complex social media tasks automatically.
+Welcome to this comprehensive demo of our AI-Powered Browser Automation Tool - a revolutionary solution that combines artificial intelligence with browser automation to handle complex social media tasks automatically.
 
 In today's digital world, managing multiple social media platforms can be time-consuming and repetitive. Our tool solves this by using advanced AI to intelligently navigate websites, solve CAPTCHAs, and create engaging content across multiple platforms.
 
-**What makes this tool special:**
 - AI-powered element detection that adapts to website changes
 - Advanced CAPTCHA solving using OpenAI Vision API
 - Intelligent content generation for posts and questions
@@ -20,48 +12,18 @@ In today's digital world, managing multiple social media platforms can be time-c
 
 Today, I'll show you how this tool can automate LinkedIn posts, create Quora questions and posts, handle complex CAPTCHAs, and much more. Let's dive in!"
 
----
-
-## SETUP AND CONFIGURATION (1:30 - 3:00)
-
-**[Show terminal/code editor]**
-
 "First, let's look at the setup process. The tool is built with Node.js and uses Playwright for browser automation.
 
-**Installation is straightforward:**
-```bash
-npm install
-```
-
-**Configuration is done through environment variables:**
-
-```env
-OPENAI_API_KEY=your_openai_key_here
-QUORA_EMAIL=your_quora_email
-QUORA_PASSWORD=your_quora_password
-LINKEDIN_EMAIL=your_linkedin_email
-LINKEDIN_PASSWORD=your_linkedin_password
-AUTO_CLOSE_BROWSER=false
-DEBUG_CAPTCHA=true
-```
-
 The tool requires an OpenAI API key for two main functions:
+
 1. AI-powered element detection - to intelligently find buttons, inputs, and interactive elements
 2. CAPTCHA solving - using GPT-4 Vision to solve image challenges
 
-**Key features of the setup:**
-- Session persistence - login once, reuse sessions
-- Flexible browser management - keep open for debugging or auto-close
-- Debug modes for troubleshooting
-- Environment-based configuration for security
-
 The tool supports multiple platforms through a simple command-line interface. 
-The tool uses an intuitive command-line interface
 
 Let me show you how it works."
 
-
-Let's start with a simple demonstration. I'll run the Quora question creation to show you the basic flow.
+Let's start with a simple demo. I'll run the Quora question creation to show you the basic flow.
 
 As you can see, the tool immediately starts:
 1. Initializing the browser
