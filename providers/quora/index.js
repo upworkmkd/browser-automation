@@ -1,10 +1,22 @@
 import { BrowserHelper } from '../../helpers/browser.js';
 import { AIMatcher } from '../../helpers/aiMatcher.js';
+import { createCaptchaHandler } from '../../helpers/captchaHandler.js';
+
+/**
+ * Quora Provider with enhanced CAPTCHA handling
+ * 
+ * Features:
+ * - Automatic reCAPTCHA v2 detection and solving
+ * - AI-powered image challenge solving using OpenAI Vision
+ * - Fallback to manual completion for complex CAPTCHAs
+ * - Intelligent login button detection using AI
+ */
 
 export default class QuoraProvider {
   constructor(browserHelper) {
     this.browser = browserHelper;
     this.aiMatcher = new AIMatcher();
+    this.captchaHandler = createCaptchaHandler(browserHelper);
   }
 
   async login() {
@@ -36,6 +48,9 @@ export default class QuoraProvider {
       await this.browser.page.fill('input[type="text"], input[type="email"]', email);
       await this.browser.page.fill('input[type="password"]', password);
       
+      // Wait a moment for any CAPTCHAs to load after filling credentials
+      await this.browser.page.waitForTimeout(2000);
+      
       // Click login button using AI for intelligent detection
       console.log('🔍 Looking for login button using AI...');
       
@@ -58,33 +73,47 @@ export default class QuoraProvider {
       
       const loginButton = loginButtonMatch.element;
       
-      console.log('✅ Login button found, clicking...');
+      // Check if login button is enabled before clicking
+      const isEnabled = await loginButton.evaluate(button => {
+        return !button.disabled && !button.hasAttribute('disabled') && 
+               button.style.pointerEvents !== 'none';
+      });
+      
+      if (!isEnabled) {
+        console.log('⚠️  Login button is disabled - likely waiting for CAPTCHA completion');
+        
+        // Try to solve CAPTCHA first
+        console.log('🔍 Attempting to solve CAPTCHA to enable login button...');
+        const captchaSolved = await this.captchaHandler.handleCaptcha();
+        
+        if (!captchaSolved) {
+          throw new Error('Login button is disabled and CAPTCHA could not be solved');
+        }
+        
+        // CAPTCHA was solved successfully, check if button is now enabled
+        console.log('✅ CAPTCHA solved! Checking if login button is now enabled...');
+        await this.browser.page.waitForTimeout(1000);
+        
+        // Check again if button is now enabled
+        const nowEnabled = await loginButton.evaluate(button => {
+          return !button.disabled && !button.hasAttribute('disabled') && 
+                 button.style.pointerEvents !== 'none';
+        });
+        
+        if (nowEnabled) {
+          console.log('✅ Login button is now enabled after CAPTCHA resolution!');
+        } else {
+          console.log('⚠️  Login button still appears disabled, but CAPTCHA was solved - proceeding anyway...');
+          // Sometimes the button state doesn't update immediately but clicking still works
+        }
+      }
+      
+      console.log('✅ Login button is enabled, clicking...');
       await loginButton.click();
       console.log('✅ Login button clicked');
       
-      // Check for captcha
-      const captchaDetected = await this.browser.page.evaluate(() => {
-        return !!document.querySelector('iframe[title*="reCAPTCHA"], div[class*="captcha"]');
-      });
-      
-      if (captchaDetected) {
-        console.log('⚠️  Captcha detected! Please complete it manually. Waiting up to 5 minutes...');
-        
-        // Wait for manual captcha completion with timeout
-        const startTime = Date.now();
-        const timeout = 5 * 60 * 1000; // 5 minutes
-        
-        while (Date.now() - startTime < timeout) {
-          const isLoggedIn = await this.verifyLogin();
-          if (isLoggedIn) {
-            console.log('✅ Login successful after captcha completion!');
-            return;
-          }
-          await this.browser.page.waitForTimeout(2000);
-        }
-        
-        throw new Error('Login timeout - captcha may not have been completed');
-      }
+      // Handle any additional CAPTCHA that might appear after clicking
+      await this.captchaHandler.handleCaptcha();
       
       // Wait for login to complete
       await this.browser.page.waitForTimeout(3000);
@@ -455,54 +484,170 @@ export default class QuoraProvider {
       // Wait for post input field to appear
       await this.browser.page.waitForTimeout(2000);
       
-      // Find post input field using AI
-      console.log('🔍 Looking for post input field using AI...');
-      const potentialPostInputs = await this.browser.page.$$('div[contenteditable="true"], textarea, input[type="text"]');
-      console.log(`Found ${potentialPostInputs.length} potential post input fields`);
+      // Find post input field - try more specific selectors first
+      console.log('🔍 Looking for post input field with specific selectors...');
       
-      if (potentialPostInputs.length === 0) {
-        throw new Error('No post input fields found on the page');
+      let postInput = null;
+      
+      // Try direct selector for "Say something" placeholder
+      const directSelector = 'div[contenteditable="true"][data-placeholder*="say"], div[contenteditable="true"][placeholder*="say"], div[contenteditable="true"][aria-placeholder*="say"]';
+      const directMatch = await this.browser.page.$(directSelector);
+      
+      if (directMatch) {
+        postInput = directMatch;
+        console.log('✅ Found post input using direct "say something" selector');
+      } else {
+        console.log('🔍 Direct selector failed, trying AI matcher...');
+        
+        // Fallback to AI with better selectors - exclude search inputs
+        const potentialPostInputs = await this.browser.page.$$('div[contenteditable="true"]:not([role="combobox"]):not([aria-label*="search"]):not([placeholder*="search"])');
+        console.log(`Found ${potentialPostInputs.length} potential post input fields (excluding search)`);
+        
+        if (potentialPostInputs.length === 0) {
+          // Last resort: try all contenteditable divs
+          const allContentEditable = await this.browser.page.$$('div[contenteditable="true"]');
+          console.log(`No specific post inputs found, trying all ${allContentEditable.length} contenteditable divs`);
+          
+          if (allContentEditable.length === 0) {
+            throw new Error('No contenteditable post input fields found on the page');
+          }
+          
+          // Use AI to find the correct post input field from all contenteditable divs
+          const postInputMatch = await this.aiMatcher.findBestMatch(
+            "Find the main text input field where users type their Quora posts. Look specifically for elements with placeholders like 'Say something...' or 'Share your thoughts...' or similar post creation text. AVOID search fields, comment boxes, or navigation elements. This should be the main post composition area where users write their posts.",
+            allContentEditable,
+            this.browser
+          );
+          
+          console.log(`✅ AI found best post input field match: ${postInputMatch.explanation}`);
+          postInput = postInputMatch.element;
+        } else {
+          // Use AI to find the correct post input field from filtered results
+          const postInputMatch = await this.aiMatcher.findBestMatch(
+            "Find the main text input field where users type their Quora posts. Look specifically for elements with placeholders like 'Say something...' or 'Share your thoughts...' or similar post creation text. This should be the main post composition area where users write their posts.",
+            potentialPostInputs,
+            this.browser
+          );
+          
+          console.log(`✅ AI found best post input field match: ${postInputMatch.explanation}`);
+          postInput = postInputMatch.element;
+        }
       }
       
-      // Use AI to find the correct post input field
-      const postInputMatch = await this.aiMatcher.findBestMatch(
-        "Find the main text input field where users type their Quora posts. Look for elements with placeholders like 'say something...' or similar post creation text. This should be a contenteditable div or textarea where users write their post content.",
-        potentialPostInputs,
-        this.browser
-      );
-      
-      console.log(`✅ AI found best post input field match: ${postInputMatch.explanation}`);
-      
-      const postInput = postInputMatch.element;
+      if (!postInput) {
+        throw new Error('Could not find post input field');
+      }
       
       // Generate and fill post content
       const postContent = this.generateTechPost();
-      await postInput.fill(postContent);
-      console.log('✅ Post content filled');
+      
+      // Try different methods to fill the content
+      try {
+        // Method 1: Use fill()
+        await postInput.fill(postContent);
+        console.log('✅ Post content filled using fill() method');
+      } catch (error) {
+        console.log('⚠️  fill() method failed, trying click and type...');
+        try {
+          // Method 2: Click and type
+          await postInput.click();
+          await this.browser.page.waitForTimeout(500);
+          await postInput.type(postContent);
+          console.log('✅ Post content filled using click and type method');
+        } catch (error2) {
+          console.log('⚠️  click and type failed, trying evaluate...');
+          // Method 3: Direct DOM manipulation
+          await postInput.evaluate((element, content) => {
+            element.innerHTML = content;
+            element.textContent = content;
+            // Trigger input events
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+          }, postContent);
+          console.log('✅ Post content filled using DOM manipulation');
+        }
+      }
+      
+      // Wait a moment for the post button to potentially become enabled
+      await this.browser.page.waitForTimeout(1000);
       
       // Click Post button using AI
       console.log('🔍 Looking for post submit button using AI...');
-      const potentialPostSubmitButtons = await this.browser.page.$$('button, input[type="submit"]');
-      console.log(`Found ${potentialPostSubmitButtons.length} potential post submit buttons`);
+      const potentialPostSubmitButtons = await this.browser.page.$$('button:not([disabled]), input[type="submit"]:not([disabled])');
+      console.log(`Found ${potentialPostSubmitButtons.length} enabled potential post submit buttons`);
       
       if (potentialPostSubmitButtons.length === 0) {
-        throw new Error('No post submit buttons found on the page');
+        // Try again including disabled buttons, maybe we need to wait or content isn't detected
+        console.log('⚠️  No enabled buttons found, checking all buttons...');
+        const allButtons = await this.browser.page.$$('button, input[type="submit"]');
+        console.log(`Found ${allButtons.length} total buttons (including disabled)`);
+        
+        if (allButtons.length === 0) {
+          throw new Error('No post submit buttons found on the page');
+        }
+        
+        // Use AI to find the post button (even if disabled, we'll handle that)
+        const postSubmitButtonMatch = await this.aiMatcher.findBestMatch(
+          "We just filled in a post text. Now we need to find the button that will actually submit/post that content to Quora. This should be a button that completes the post creation process. Look for buttons with text like 'Post', 'Submit', 'Publish', or similar submission actions. The button might be disabled initially.",
+          allButtons,
+          this.browser
+        );
+        
+        console.log(`✅ AI found post submit button: ${postSubmitButtonMatch.explanation}`);
+        const postSubmitButton = postSubmitButtonMatch.element;
+        
+        // Check if button is enabled
+        const isEnabled = await postSubmitButton.evaluate(btn => !btn.disabled && !btn.hasAttribute('disabled'));
+        if (!isEnabled) {
+          console.log('⚠️  Post button is disabled, waiting for it to become enabled...');
+          
+          // Wait up to 10 seconds for button to become enabled
+          let attempts = 0;
+          const maxAttempts = 20; // 20 * 500ms = 10 seconds
+          
+          while (attempts < maxAttempts) {
+            await this.browser.page.waitForTimeout(500);
+            const nowEnabled = await postSubmitButton.evaluate(btn => !btn.disabled && !btn.hasAttribute('disabled'));
+            if (nowEnabled) {
+              console.log('✅ Post button is now enabled!');
+              break;
+            }
+            attempts++;
+          }
+          
+          const finalEnabled = await postSubmitButton.evaluate(btn => !btn.disabled && !btn.hasAttribute('disabled'));
+          if (!finalEnabled) {
+            console.log('⚠️  Post button still disabled, but attempting to click anyway...');
+          }
+        }
+        
+        console.log('✅ Post submit button found, clicking...');
+        
+        // Try multiple click methods
+        try {
+          await postSubmitButton.click();
+          console.log('✅ Post submitted successfully using click()!');
+        } catch (error) {
+          console.log('⚠️  Regular click failed, trying force click...');
+          await postSubmitButton.evaluate(btn => btn.click());
+          console.log('✅ Post submitted successfully using evaluate click()!');
+        }
+      } else {
+        // Use AI to find the correct enabled post submit button
+        const postSubmitButtonMatch = await this.aiMatcher.findBestMatch(
+          "We just filled in a post text. Now we need to find the button that will actually submit/post that content to Quora. This should be a button that completes the post creation process. Look for buttons with text like 'Post', 'Submit', 'Publish', or similar submission actions.",
+          potentialPostSubmitButtons,
+          this.browser
+        );
+        
+        console.log(`✅ AI found best post submit button match: ${postSubmitButtonMatch.explanation}`);
+        
+        const postSubmitButton = postSubmitButtonMatch.element;
+        
+        console.log('✅ Post submit button found, clicking...');
+        await postSubmitButton.click();
+        console.log('✅ Post submitted successfully!');
       }
-      
-      // Use AI to find the correct post submit button
-      const postSubmitButtonMatch = await this.aiMatcher.findBestMatch(
-        "We just filled in a post text. Now we need to find the button that will actually submit/post that content to Quora. This should be a button that completes the post creation process. Look for buttons with text like 'Post', 'Submit', 'Publish', or similar submission actions.",
-        potentialPostSubmitButtons,
-        this.browser
-      );
-      
-      console.log(`✅ AI found best post submit button match: ${postSubmitButtonMatch.explanation}`);
-      
-      const postSubmitButton = postSubmitButtonMatch.element;
-      
-      console.log('✅ Post submit button found, clicking...');
-      await postSubmitButton.click();
-      console.log('✅ Post submitted successfully!');
       
       // Wait for post to be processed
       await this.browser.page.waitForTimeout(3000);
