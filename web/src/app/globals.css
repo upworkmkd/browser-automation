@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222.2 84% 4.9%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222.2 84% 4.9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 84% 4.9%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 94.1%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* React Flow specific styles */
+.react-flow__node {
+  @apply border border-border rounded-lg shadow-sm;
+}
+
+.react-flow__node-custom {
+  @apply bg-card text-card-foreground p-3 min-w-[200px];
+}
+
+.react-flow__handle {
+  @apply w-2 h-2 !bg-primary;
+}
+
+.react-flow__edge {
+  stroke: hsl(var(--primary));
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+}
+
+.react-flow__minimap {
+  @apply bg-muted;
+}
+
+.react-flow__controls {
+  @apply bg-card border border-border;
+}
+
+.react-flow__controls-button {
+  @apply bg-card hover:bg-accent text-foreground border-border;
+}
+
+/* Node status indicators */
+.node-status-pending {
+  @apply border-muted-foreground;
+}
+
+.node-status-running {
+  @apply border-blue-500 animate-pulse;
+}
+
+.node-status-success {
+  @apply border-green-500;
+}
+
+.node-status-error {
+  @apply border-red-500;
+}
