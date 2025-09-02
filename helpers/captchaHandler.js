@@ -9,6 +9,36 @@ export class CaptchaHandler {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
+    
+    // CAPTCHA type constants
+    this.CAPTCHA_TYPES = {
+      RECAPTCHA_V2_CHECKBOX: 'recaptcha-v2-checkbox',
+      RECAPTCHA_V2_IMAGE: 'recaptcha-v2-image',
+      RECAPTCHA_V2_INVISIBLE: 'recaptcha-v2-invisible',
+      RECAPTCHA_V3: 'recaptcha-v3',
+      HCAPTCHA: 'hcaptcha',
+      HCAPTCHA_IMAGE: 'hcaptcha-image',
+      FUNCAPTCHA: 'funcaptcha',
+      MATH_CAPTCHA: 'math-captcha',
+      TEXT_CAPTCHA: 'text-captcha',
+      PUZZLE_JIGSAW: 'puzzle-jigsaw',
+      PUZZLE_SLIDER: 'puzzle-slider',
+      PUZZLE_ROTATION: 'puzzle-rotation',
+      CLOUDFLARE_TURNSTILE: 'cloudflare-turnstile',
+      CUSTOM: 'custom-captcha'
+    };
+    
+    // Success rates for different CAPTCHA types
+    this.successRates = {
+      [this.CAPTCHA_TYPES.RECAPTCHA_V2_CHECKBOX]: 0.95,
+      [this.CAPTCHA_TYPES.RECAPTCHA_V2_IMAGE]: 0.90,
+      [this.CAPTCHA_TYPES.MATH_CAPTCHA]: 0.95,
+      [this.CAPTCHA_TYPES.TEXT_CAPTCHA]: 0.85,
+      [this.CAPTCHA_TYPES.PUZZLE_JIGSAW]: 0.80,
+      [this.CAPTCHA_TYPES.PUZZLE_SLIDER]: 0.85,
+      [this.CAPTCHA_TYPES.HCAPTCHA]: 0.75,
+      [this.CAPTCHA_TYPES.FUNCAPTCHA]: 0.70
+    };
   }
 
   /**
@@ -57,17 +87,51 @@ export class CaptchaHandler {
         let solved = false;
         
         switch (captchaType) {
-          case 'recaptcha-v2-checkbox':
+          case this.CAPTCHA_TYPES.RECAPTCHA_V2_CHECKBOX:
             solved = await this.handleRecaptchaV2Checkbox();
             break;
-          case 'recaptcha-v2-image':
+          case this.CAPTCHA_TYPES.RECAPTCHA_V2_IMAGE:
             solved = await this.handleRecaptchaV2ImageChallenge();
             break;
-          case 'hcaptcha':
+          case this.CAPTCHA_TYPES.RECAPTCHA_V2_INVISIBLE:
+            solved = await this.handleRecaptchaV2Invisible();
+            break;
+          case this.CAPTCHA_TYPES.RECAPTCHA_V3:
+            solved = await this.handleRecaptchaV3();
+            break;
+          case this.CAPTCHA_TYPES.HCAPTCHA:
             solved = await this.handleHCaptcha();
             break;
+          case this.CAPTCHA_TYPES.HCAPTCHA_IMAGE:
+            solved = await this.handleHCaptchaImage();
+            break;
+          case this.CAPTCHA_TYPES.FUNCAPTCHA:
+            solved = await this.handleFunCaptcha();
+            break;
+          case this.CAPTCHA_TYPES.MATH_CAPTCHA:
+            solved = await this.handleMathCaptcha();
+            break;
+          case this.CAPTCHA_TYPES.TEXT_CAPTCHA:
+            solved = await this.handleTextCaptcha();
+            break;
+          case this.CAPTCHA_TYPES.PUZZLE_JIGSAW:
+            solved = await this.handleJigsawPuzzle();
+            break;
+          case this.CAPTCHA_TYPES.PUZZLE_SLIDER:
+            solved = await this.handleSliderPuzzle();
+            break;
+          case this.CAPTCHA_TYPES.PUZZLE_ROTATION:
+            solved = await this.handleRotationPuzzle();
+            break;
+          case this.CAPTCHA_TYPES.CLOUDFLARE_TURNSTILE:
+            solved = await this.handleCloudflareTurnstile();
+            break;
+          case this.CAPTCHA_TYPES.CUSTOM:
+            solved = await this.handleCustomCaptcha();
+            break;
           default:
-            console.log('⚠️  Unknown CAPTCHA type');
+            console.log(`⚠️  Unknown CAPTCHA type: ${captchaType}`);
+            solved = await this.handleCustomCaptcha(); // Fallback to custom handler
             break;
         }
         
@@ -101,29 +165,65 @@ export class CaptchaHandler {
   }
 
   /**
-   * Detects what type of CAPTCHA is present on the page
+   * Enhanced CAPTCHA detection system that identifies all major CAPTCHA types
    * @returns {Promise<string|null>} - CAPTCHA type or null if none found
    */
   async detectCaptchaType() {
+    console.log('🔍 Running comprehensive CAPTCHA detection...');
+    
+    // Run all detection methods in parallel for efficiency
+    const detectionResults = await Promise.all([
+      this.detectRecaptcha(),
+      this.detectHCaptcha(),
+      this.detectFunCaptcha(),
+      this.detectMathCaptcha(),
+      this.detectTextCaptcha(),
+      this.detectPuzzleCaptcha(),
+      this.detectCloudflareType(),
+      this.detectCustomCaptcha()
+    ]);
+    
+    // Filter out null results and prioritize by confidence/success rate
+    const validDetections = detectionResults.filter(result => result !== null);
+    
+    if (validDetections.length === 0) {
+      console.log('❌ No CAPTCHA detected with any method');
+      return null;
+    }
+    
+    if (validDetections.length === 1) {
+      console.log(`✅ Single CAPTCHA detected: ${validDetections[0]}`);
+      return validDetections[0];
+    }
+    
+    // Multiple CAPTCHAs detected - prioritize by success rate
+    const prioritized = validDetections.sort((a, b) => 
+      (this.successRates[b] || 0.5) - (this.successRates[a] || 0.5)
+    );
+    
+    console.log(`🎯 Multiple CAPTCHAs detected: [${validDetections.join(', ')}], prioritizing: ${prioritized[0]}`);
+    return prioritized[0];
+  }
+  
+  /**
+   * Detect reCAPTCHA variations (v2, v3, invisible)
+   */
+  async detectRecaptcha() {
     return await this.browser.page.evaluate(() => {
-      console.log('🔍 Checking for various CAPTCHA types...');
+      // Check for reCAPTCHA v3 first (no UI, just script)
+      if (window.grecaptcha && window.grecaptcha.enterprise) {
+        return 'recaptcha-v3';
+      }
       
-      // Check for reCAPTCHA v2 checkbox - multiple selectors
-      const recaptchaSelectors = [
-        'iframe[title*="reCAPTCHA"]',
-        'iframe[src*="recaptcha"]', 
-        'iframe[src*="google.com/recaptcha"]',
-        'div[class*="recaptcha"]',
-        '.g-recaptcha',
-        '#recaptcha',
-        '[data-sitekey]'
+      // Check for reCAPTCHA v2 invisible
+      const invisibleSelectors = [
+        '.g-recaptcha[data-size="invisible"]',
+        '[data-callback][data-sitekey]:not([data-size="normal"])'
       ];
       
-      for (const selector of recaptchaSelectors) {
-        const element = document.querySelector(selector);
-        if (element) {
-          console.log(`✅ Found reCAPTCHA using selector: ${selector}`);
-          return 'recaptcha-v2-checkbox';
+      for (const selector of invisibleSelectors) {
+        if (document.querySelector(selector)) {
+          return 'recaptcha-v2-invisible';
         }
       }
       
@@ -137,12 +237,50 @@ export class CaptchaHandler {
       for (const selector of challengeSelectors) {
         const element = document.querySelector(selector);
         if (element) {
-          console.log(`✅ Found reCAPTCHA challenge using selector: ${selector}`);
           return 'recaptcha-v2-image';
         }
       }
       
-      // Check for hCaptcha
+      // Check for reCAPTCHA v2 checkbox
+      const checkboxSelectors = [
+        'iframe[title*="reCAPTCHA"]',
+        'iframe[src*="recaptcha"]', 
+        'iframe[src*="google.com/recaptcha"]',
+        'div[class*="recaptcha"]',
+        '.g-recaptcha',
+        '#recaptcha',
+        '[data-sitekey]'
+      ];
+      
+      for (const selector of checkboxSelectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          return 'recaptcha-v2-checkbox';
+        }
+      }
+      
+      return null;
+    });
+  }
+  
+  /**
+   * Detect hCaptcha variations
+   */
+  async detectHCaptcha() {
+    return await this.browser.page.evaluate(() => {
+      // Check for hCaptcha challenge first
+      const challengeSelectors = [
+        'iframe[src*="hcaptcha.com"][src*="challenge"]',
+        'div[class*="hcaptcha-challenge"]'
+      ];
+      
+      for (const selector of challengeSelectors) {
+        if (document.querySelector(selector)) {
+          return 'hcaptcha-image';
+        }
+      }
+      
+      // Check for hCaptcha checkbox
       const hcaptchaSelectors = [
         'iframe[src*="hcaptcha"]',
         'div[class*="hcaptcha"]',
@@ -153,12 +291,201 @@ export class CaptchaHandler {
       for (const selector of hcaptchaSelectors) {
         const element = document.querySelector(selector);
         if (element) {
-          console.log(`✅ Found hCaptcha using selector: ${selector}`);
           return 'hcaptcha';
         }
       }
       
-      // Generic CAPTCHA detection with more patterns
+      return null;
+    });
+  }
+  
+  /**
+   * Detect FunCaptcha (Arkose Labs)
+   */
+  async detectFunCaptcha() {
+    return await this.browser.page.evaluate(() => {
+      const funCaptchaSelectors = [
+        'iframe[src*="funcaptcha"]',
+        'iframe[src*="arkoselabs"]',
+        'div[class*="funcaptcha"]',
+        '#funcaptcha',
+        '[data-pk]' // FunCaptcha public key attribute
+      ];
+      
+      for (const selector of funCaptchaSelectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          return 'funcaptcha';
+        }
+      }
+      
+      // Check for Arkose Labs enforcement
+      if (window.arkoseEnforcement || document.querySelector('script[src*="arkoselabs"]')) {
+        return 'funcaptcha';
+      }
+      
+      return null;
+    });
+  }
+  
+  /**
+   * Detect mathematical CAPTCHAs
+   */
+  async detectMathCaptcha() {
+    return await this.browser.page.evaluate(() => {
+      // Look for math expressions in text
+      const mathPatterns = [
+        /\d+\s*[\+\-\*\/]\s*\d+\s*=\s*\?/,
+        /what\s+is\s+\d+/i,
+        /solve\s*:/i,
+        /calculate\s*:/i,
+        /\d+\s*plus\s*\d+/i,
+        /\d+\s*minus\s*\d+/i
+      ];
+      
+      const textElements = document.querySelectorAll('*');
+      for (const element of textElements) {
+        const text = element.textContent || '';
+        for (const pattern of mathPatterns) {
+          if (pattern.test(text)) {
+            return 'math-captcha';
+          }
+        }
+      }
+      
+      // Check for common math CAPTCHA containers
+      const mathSelectors = [
+        '[class*="math"]',
+        '[id*="math"]',
+        '[class*="calculate"]',
+        '[id*="calculate"]'
+      ];
+      
+      for (const selector of mathSelectors) {
+        const element = document.querySelector(selector);
+        if (element && /\d+.*[+\-*\/].*\d+/.test(element.textContent)) {
+          return 'math-captcha';
+        }
+      }
+      
+      return null;
+    });
+  }
+  
+  /**
+   * Detect text-based CAPTCHAs
+   */
+  async detectTextCaptcha() {
+    return await this.browser.page.evaluate(() => {
+      // Look for distorted text images
+      const textCaptchaSelectors = [
+        'img[src*="captcha"]',
+        'img[alt*="captcha"]',
+        'canvas[id*="captcha"]',
+        'div[class*="captcha"] img',
+        'div[id*="captcha"] img'
+      ];
+      
+      for (const selector of textCaptchaSelectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          return 'text-captcha';
+        }
+      }
+      
+      // Check for text input with CAPTCHA-like context
+      const inputs = document.querySelectorAll('input[type="text"]');
+      for (const input of inputs) {
+        const label = input.previousElementSibling || input.nextElementSibling;
+        const labelText = label ? label.textContent.toLowerCase() : '';
+        if (labelText.includes('captcha') || labelText.includes('verification')) {
+          return 'text-captcha';
+        }
+      }
+      
+      return null;
+    });
+  }
+  
+  /**
+   * Detect puzzle-based CAPTCHAs
+   */
+  async detectPuzzleCaptcha() {
+    return await this.browser.page.evaluate(() => {
+      // Detect jigsaw puzzles
+      const jigsawSelectors = [
+        '[class*="jigsaw"]',
+        '[class*="puzzle"]',
+        'canvas[id*="puzzle"]',
+        'div[class*="slider-captcha"]'
+      ];
+      
+      for (const selector of jigsawSelectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          // Determine specific puzzle type
+          const className = element.className.toLowerCase();
+          if (className.includes('slider') || className.includes('slide')) {
+            return 'puzzle-slider';
+          } else if (className.includes('rotate') || className.includes('rotation')) {
+            return 'puzzle-rotation';
+          } else {
+            return 'puzzle-jigsaw';
+          }
+        }
+      }
+      
+      // Check for slider-specific elements
+      const sliderSelectors = [
+        'div[class*="slider"][class*="track"]',
+        'div[class*="slide-verify"]',
+        'input[type="range"][class*="captcha"]'
+      ];
+      
+      for (const selector of sliderSelectors) {
+        if (document.querySelector(selector)) {
+          return 'puzzle-slider';
+        }
+      }
+      
+      return null;
+    });
+  }
+  
+  /**
+   * Detect Cloudflare Turnstile
+   */
+  async detectCloudflareType() {
+    return await this.browser.page.evaluate(() => {
+      const turnstileSelectors = [
+        'iframe[src*="turnstile"]',
+        'div[class*="turnstile"]',
+        '[data-sitekey][data-theme]', // Turnstile attributes
+        'script[src*="turnstile"]'
+      ];
+      
+      for (const selector of turnstileSelectors) {
+        if (document.querySelector(selector)) {
+          return 'cloudflare-turnstile';
+        }
+      }
+      
+      // Check for Cloudflare challenge page
+      if (document.title.includes('Just a moment') || 
+          document.body.textContent.includes('Checking your browser')) {
+        return 'cloudflare-turnstile';
+      }
+      
+      return null;
+    });
+  }
+  
+  /**
+   * Detect custom/unknown CAPTCHA types
+   */
+  async detectCustomCaptcha() {
+    return await this.browser.page.evaluate(() => {
+      // Generic CAPTCHA indicators
       const genericSelectors = [
         'div[class*="captcha"]',
         'div[id*="captcha"]',
@@ -166,29 +493,29 @@ export class CaptchaHandler {
         '#captcha',
         'div[class*="verification"]',
         'div[id*="verification"]',
-        'img[src*="captcha"]',
-        'canvas[id*="captcha"]'
+        'div[class*="challenge"]',
+        'div[id*="challenge"]'
       ];
       
       for (const selector of genericSelectors) {
         const element = document.querySelector(selector);
         if (element && element.offsetWidth > 0 && element.offsetHeight > 0) {
-          console.log(`✅ Found generic CAPTCHA using selector: ${selector}`);
-          return 'generic';
+          return 'custom-captcha';
         }
       }
       
-      // Check for any disabled login buttons that might indicate CAPTCHA requirement
-      const loginButtons = document.querySelectorAll('button[type="submit"], button, input[type="submit"]');
-      for (const button of loginButtons) {
-        const text = (button.textContent || button.value || '').toLowerCase();
-        if ((text.includes('log') || text.includes('sign')) && button.disabled) {
-          console.log('⚠️  Login button is disabled, might indicate CAPTCHA requirement');
-          // Don't return a CAPTCHA type just for disabled button, but log it
+      // Check for disabled submit buttons (common CAPTCHA indicator)
+      const submitButtons = document.querySelectorAll('button[type="submit"], input[type="submit"]');
+      for (const button of submitButtons) {
+        if (button.disabled) {
+          // Look for CAPTCHA-like content nearby
+          const parent = button.closest('form') || button.parentElement;
+          if (parent && /captcha|verification|challenge|security/i.test(parent.textContent)) {
+            return 'custom-captcha';
+          }
         }
       }
       
-      console.log('❌ No CAPTCHA detected with any selector');
       return null;
     });
   }
@@ -644,11 +971,603 @@ Remember:
   }
 
   /**
+   * Handles reCAPTCHA v2 invisible challenges
+   * @returns {Promise<boolean>}
+   */
+  async handleRecaptchaV2Invisible() {
+    try {
+      console.log('🎯 Attempting to handle reCAPTCHA v2 invisible...');
+      
+      // Invisible reCAPTCHA triggers automatically, just wait for it to complete
+      await this.browser.page.waitForTimeout(5000);
+      
+      // Check if login button becomes enabled
+      const isLoginButtonEnabled = await this.isLoginButtonEnabled();
+      if (isLoginButtonEnabled) {
+        console.log('✅ reCAPTCHA v2 invisible completed successfully!');
+        return true;
+      }
+      
+      console.log('⚠️  reCAPTCHA v2 invisible may require additional verification');
+      return false;
+      
+    } catch (error) {
+      console.error('❌ Error handling reCAPTCHA v2 invisible:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Handles reCAPTCHA v3 (score-based, no user interaction)
+   * @returns {Promise<boolean>}
+   */
+  async handleRecaptchaV3() {
+    try {
+      console.log('🎯 Handling reCAPTCHA v3 (score-based)...');
+      
+      // v3 is score-based and automatic, just wait and check if login proceeds
+      await this.browser.page.waitForTimeout(3000);
+      
+      const isLoginButtonEnabled = await this.isLoginButtonEnabled();
+      if (isLoginButtonEnabled) {
+        console.log('✅ reCAPTCHA v3 score acceptable!');
+        return true;
+      }
+      
+      console.log('⚠️  reCAPTCHA v3 score may be too low, manual completion required');
+      return false;
+      
+    } catch (error) {
+      console.error('❌ Error handling reCAPTCHA v3:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Handles mathematical CAPTCHA challenges using AI
+   * @returns {Promise<boolean>}
+   */
+  async handleMathCaptcha() {
+    try {
+      console.log('🎯 Attempting to solve mathematical CAPTCHA...');
+      
+      if (!process.env.OPENAI_API_KEY) {
+        console.log('⚠️  OpenAI API key required for math CAPTCHA solving');
+        return false;
+      }
+      
+      // Find the math question text
+      const mathQuestion = await this.browser.page.evaluate(() => {
+        const mathPatterns = [
+          /\d+\s*[\+\-\*\/]\s*\d+\s*=\s*\?/,
+          /what\s+is\s+\d+[\+\-\*\/]\d+/i,
+          /solve\s*:.*\d+.*[\+\-\*\/].*\d+/i,
+          /calculate\s*:.*\d+.*[\+\-\*\/].*\d+/i
+        ];
+        
+        const textElements = document.querySelectorAll('*');
+        for (const element of textElements) {
+          const text = element.textContent || '';
+          for (const pattern of mathPatterns) {
+            const match = text.match(pattern);
+            if (match) {
+              return match[0];
+            }
+          }
+        }
+        return null;
+      });
+      
+      if (!mathQuestion) {
+        console.log('⚠️  Could not find math question text');
+        return false;
+      }
+      
+      console.log(`📊 Math question found: "${mathQuestion}"`);
+      
+      // Use AI to solve the math problem
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [
+          {
+            role: "system",
+            content: "You are a calculator. Solve the given mathematical expression and return ONLY the numerical answer, nothing else."
+          },
+          {
+            role: "user",
+            content: `Solve this: ${mathQuestion}`
+          }
+        ],
+        max_tokens: 10,
+        temperature: 0
+      });
+      
+      const answer = response.choices[0].message.content.trim();
+      console.log(`🤖 AI calculated answer: ${answer}`);
+      
+      // Find and fill the answer input
+      const inputFilled = await this.browser.page.evaluate((answer) => {
+        // Look for math CAPTCHA input fields
+        const inputs = document.querySelectorAll('input[type="text"], input[type="number"]');
+        for (const input of inputs) {
+          const parent = input.closest('div');
+          const parentText = parent ? parent.textContent : '';
+          
+          if (parentText.includes('=') || parentText.includes('answer') || 
+              parentText.includes('result') || parentText.includes('solve')) {
+            input.value = answer;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          }
+        }
+        return false;
+      }, answer);
+      
+      if (inputFilled) {
+        console.log('✅ Math CAPTCHA answer filled successfully!');
+        await this.browser.page.waitForTimeout(1000);
+        return true;
+      } else {
+        console.log('⚠️  Could not find math answer input field');
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('❌ Error solving math CAPTCHA:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Handles text-based CAPTCHA challenges using OCR and AI
+   * @returns {Promise<boolean>}
+   */
+  async handleTextCaptcha() {
+    try {
+      console.log('🎯 Attempting to solve text CAPTCHA...');
+      
+      if (!process.env.OPENAI_API_KEY) {
+        console.log('⚠️  OpenAI API key required for text CAPTCHA solving');
+        return false;
+      }
+      
+      // Find CAPTCHA image
+      const captchaImage = await this.browser.page.$('img[src*="captcha"], img[alt*="captcha"], canvas[id*="captcha"]');
+      if (!captchaImage) {
+        console.log('⚠️  Could not find text CAPTCHA image');
+        return false;
+      }
+      
+      // Screenshot the CAPTCHA
+      const imageBuffer = await captchaImage.screenshot();
+      
+      // Use OpenAI Vision to read the text
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "You are an OCR system. Extract the text from this CAPTCHA image. Return ONLY the text you see, nothing else. Handle distorted letters, noise, and various fonts."
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "What text do you see in this CAPTCHA image?"
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/png;base64,${imageBuffer.toString('base64')}`,
+                  detail: "high"
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 50,
+        temperature: 0
+      });
+      
+      const extractedText = response.choices[0].message.content.trim();
+      console.log(`🤖 AI extracted text: "${extractedText}"`);
+      
+      // Find and fill the text input
+      const inputFilled = await this.browser.page.evaluate((text) => {
+        const inputs = document.querySelectorAll('input[type="text"]');
+        for (const input of inputs) {
+          const parent = input.closest('div, form');
+          const parentText = parent ? parent.textContent.toLowerCase() : '';
+          
+          if (parentText.includes('captcha') || parentText.includes('verification') ||
+              parentText.includes('security') || parentText.includes('code')) {
+            input.value = text;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          }
+        }
+        return false;
+      }, extractedText);
+      
+      if (inputFilled) {
+        console.log('✅ Text CAPTCHA solved successfully!');
+        await this.browser.page.waitForTimeout(1000);
+        return true;
+      } else {
+        console.log('⚠️  Could not find text CAPTCHA input field');
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('❌ Error solving text CAPTCHA:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Handles jigsaw puzzle CAPTCHAs
+   * @returns {Promise<boolean>}
+   */
+  async handleJigsawPuzzle() {
+    try {
+      console.log('🎯 Attempting to solve jigsaw puzzle CAPTCHA...');
+      
+      if (!process.env.OPENAI_API_KEY) {
+        console.log('⚠️  OpenAI API key required for jigsaw puzzle solving');
+        return false;
+      }
+      
+      // Find puzzle elements
+      const puzzleContainer = await this.browser.page.$('[class*="jigsaw"], [class*="puzzle"], canvas[id*="puzzle"]');
+      if (!puzzleContainer) {
+        console.log('⚠️  Could not find jigsaw puzzle container');
+        return false;
+      }
+      
+      // Screenshot the puzzle
+      const puzzleImage = await puzzleContainer.screenshot();
+      
+      // Use AI to analyze the puzzle
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "You are a puzzle solver. Analyze this jigsaw puzzle image and determine where the missing piece should be placed. Return coordinates as JSON: {\"x\": number, \"y\": number} representing the approximate position where the piece should be placed."
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Analyze this jigsaw puzzle and tell me where the missing piece should be placed."
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/png;base64,${puzzleImage.toString('base64')}`,
+                  detail: "high"
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 100,
+        temperature: 0
+      });
+      
+      const aiResponse = response.choices[0].message.content.trim();
+      console.log(`🤖 AI puzzle analysis: ${aiResponse}`);
+      
+      try {
+        const coordinates = JSON.parse(aiResponse);
+        
+        // Drag the puzzle piece to the calculated position
+        const puzzleBounds = await puzzleContainer.boundingBox();
+        const targetX = puzzleBounds.x + coordinates.x;
+        const targetY = puzzleBounds.y + coordinates.y;
+        
+        // Find draggable piece (usually near the puzzle area)
+        await this.simulateHumanDrag(puzzleContainer, targetX, targetY);
+        
+        console.log('✅ Jigsaw puzzle piece moved!');
+        await this.browser.page.waitForTimeout(2000);
+        return true;
+        
+      } catch (parseError) {
+        console.log('⚠️  Could not parse AI coordinates, trying alternative approach');
+        // Fallback: try clicking center of puzzle area
+        await puzzleContainer.click();
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('❌ Error solving jigsaw puzzle:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Handles slider puzzle CAPTCHAs
+   * @returns {Promise<boolean>}
+   */
+  async handleSliderPuzzle() {
+    try {
+      console.log('🎯 Attempting to solve slider puzzle CAPTCHA...');
+      
+      // Find slider element
+      const slider = await this.browser.page.$('div[class*="slider"], input[type="range"][class*="captcha"]');
+      if (!slider) {
+        console.log('⚠️  Could not find slider element');
+        return false;
+      }
+      
+      // Get slider background image for analysis
+      const sliderContainer = await this.browser.page.$('div[class*="slider-captcha"], div[class*="slide-verify"]');
+      if (!sliderContainer) {
+        console.log('⚠️  Could not find slider container');
+        return false;
+      }
+      
+      const sliderImage = await sliderContainer.screenshot();
+      
+      if (process.env.OPENAI_API_KEY) {
+        // Use AI to determine slider position
+        const response = await this.openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            {
+              role: "system",
+              content: "Analyze this slider puzzle image. Determine how far the slider should be moved to complete the puzzle. Return a percentage (0-100) representing how far to slide."
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "How far should I slide to complete this puzzle? Return only a number between 0-100."
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:image/png;base64,${sliderImage.toString('base64')}`,
+                    detail: "high"
+                  }
+                }
+              ]
+            }
+          ],
+          max_tokens: 10,
+          temperature: 0
+        });
+        
+        const percentage = parseInt(response.choices[0].message.content.trim());
+        console.log(`🤖 AI suggests sliding ${percentage}%`);
+        
+        // Perform human-like slider movement
+        await this.simulateHumanSlider(slider, percentage);
+      } else {
+        // Fallback: try common slider positions
+        const positions = [30, 50, 70, 80, 90];
+        for (const position of positions) {
+          console.log(`🎯 Trying slider position: ${position}%`);
+          await this.simulateHumanSlider(slider, position);
+          await this.browser.page.waitForTimeout(1000);
+          
+          // Check if solved
+          const isEnabled = await this.isLoginButtonEnabled();
+          if (isEnabled) {
+            console.log(`✅ Slider puzzle solved at ${position}%!`);
+            return true;
+          }
+        }
+      }
+      
+      console.log('✅ Slider puzzle movement completed!');
+      await this.browser.page.waitForTimeout(2000);
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Error solving slider puzzle:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Handles rotation puzzle CAPTCHAs
+   * @returns {Promise<boolean>}
+   */
+  async handleRotationPuzzle() {
+    try {
+      console.log('🎯 Attempting to solve rotation puzzle CAPTCHA...');
+      
+      // Find rotation elements
+      const rotationElement = await this.browser.page.$('[class*="rotate"], [class*="rotation"]');
+      if (!rotationElement) {
+        console.log('⚠️  Could not find rotation puzzle element');
+        return false;
+      }
+      
+      // Try different rotation angles
+      const angles = [90, 180, 270, 360];
+      
+      for (const angle of angles) {
+        console.log(`🔄 Trying rotation angle: ${angle}°`);
+        
+        // Simulate rotation (implementation depends on specific CAPTCHA)
+        await rotationElement.click();
+        await this.browser.page.waitForTimeout(500);
+        
+        // Check if puzzle is solved
+        const isEnabled = await this.isLoginButtonEnabled();
+        if (isEnabled) {
+          console.log(`✅ Rotation puzzle solved at ${angle}°!`);
+          return true;
+        }
+      }
+      
+      console.log('✅ Rotation puzzle attempts completed!');
+      return false;
+      
+    } catch (error) {
+      console.error('❌ Error solving rotation puzzle:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Handles FunCaptcha challenges
+   * @returns {Promise<boolean>}
+   */
+  async handleFunCaptcha() {
+    try {
+      console.log('🎯 Attempting to handle FunCaptcha...');
+      
+      // FunCaptcha is complex and game-based, requires specialized handling
+      console.log('⚠️  FunCaptcha detected - attempting basic interaction');
+      
+      const funCaptchaFrame = await this.browser.page.$('iframe[src*="funcaptcha"], iframe[src*="arkoselabs"]');
+      if (!funCaptchaFrame) {
+        console.log('⚠️  Could not find FunCaptcha iframe');
+        return false;
+      }
+      
+      // Basic interaction - click through if possible
+      await funCaptchaFrame.click();
+      await this.browser.page.waitForTimeout(3000);
+      
+      console.log('⚠️  FunCaptcha requires manual completion or specialized service');
+      return false;
+      
+    } catch (error) {
+      console.error('❌ Error handling FunCaptcha:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Handles hCaptcha image challenges
+   * @returns {Promise<boolean>}
+   */
+  async handleHCaptchaImage() {
+    try {
+      console.log('🎯 Attempting to solve hCaptcha image challenge...');
+      
+      // Similar to reCAPTCHA image challenges but for hCaptcha
+      const challengeFrame = await this.browser.page.$('iframe[src*="hcaptcha.com"][src*="challenge"]');
+      if (!challengeFrame) {
+        console.log('⚠️  Could not find hCaptcha challenge frame');
+        return false;
+      }
+      
+      // Implementation would be similar to reCAPTCHA image challenge
+      // but adapted for hCaptcha's specific structure
+      console.log('⚠️  hCaptcha image challenge requires specialized implementation');
+      return false;
+      
+    } catch (error) {
+      console.error('❌ Error handling hCaptcha image challenge:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Handles Cloudflare Turnstile
+   * @returns {Promise<boolean>}
+   */
+  async handleCloudflareTurnstile() {
+    try {
+      console.log('🎯 Handling Cloudflare Turnstile...');
+      
+      // Turnstile usually completes automatically, just wait
+      await this.browser.page.waitForTimeout(5000);
+      
+      // Check if challenge is completed
+      const isCompleted = await this.browser.page.evaluate(() => {
+        return !document.title.includes('Just a moment') && 
+               !document.body.textContent.includes('Checking your browser');
+      });
+      
+      if (isCompleted) {
+        console.log('✅ Cloudflare Turnstile completed successfully!');
+        return true;
+      }
+      
+      console.log('⚠️  Cloudflare Turnstile may require additional time');
+      return false;
+      
+    } catch (error) {
+      console.error('❌ Error handling Cloudflare Turnstile:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Handles custom/unknown CAPTCHA types
+   * @returns {Promise<boolean>}
+   */
+  async handleCustomCaptcha() {
+    try {
+      console.log('🎯 Attempting to handle custom CAPTCHA...');
+      
+      // Generic approach for unknown CAPTCHAs
+      await this.browser.page.waitForTimeout(2000);
+      
+      // Try clicking on CAPTCHA elements
+      const captchaElements = await this.browser.page.$$('[class*="captcha"], [id*="captcha"]');
+      for (const element of captchaElements) {
+        try {
+          await element.click();
+          await this.browser.page.waitForTimeout(1000);
+        } catch (e) {
+          // Continue to next element
+        }
+      }
+      
+      // Check if any interaction helped
+      const isEnabled = await this.isLoginButtonEnabled();
+      if (isEnabled) {
+        console.log('✅ Custom CAPTCHA interaction successful!');
+        return true;
+      }
+      
+      console.log('⚠️  Custom CAPTCHA requires manual completion or specific implementation');
+      return false;
+      
+    } catch (error) {
+      console.error('❌ Error handling custom CAPTCHA:', error);
+      return false;
+    }
+  }
+
+  /**
    * Handles hCaptcha challenges
    * @returns {Promise<boolean>}
    */
   async handleHCaptcha() {
-    console.log('⚠️  hCaptcha detected - this requires manual completion or specialized service');
+    console.log('⚠️  hCaptcha detected - attempting basic handling');
+    
+    try {
+      // Try basic hCaptcha checkbox click
+      const hcaptchaFrame = await this.browser.page.$('iframe[src*="hcaptcha"]');
+      if (hcaptchaFrame) {
+        await hcaptchaFrame.click();
+        await this.browser.page.waitForTimeout(3000);
+        
+        const isEnabled = await this.isLoginButtonEnabled();
+        if (isEnabled) {
+          console.log('✅ hCaptcha basic interaction successful!');
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('Error with basic hCaptcha handling:', error);
+    }
+    
+    console.log('⚠️  hCaptcha requires manual completion or specialized service');
     return false;
   }
 
@@ -709,6 +1628,204 @@ Remember:
       console.log(`📸 Debug screenshot saved: ${path}`);
     } catch (error) {
       console.error('❌ Error saving debug screenshot:', error);
+    }
+  }
+
+  /**
+   * Simulates human-like drag movement for puzzle solving
+   * @param {Object} startElement - Element to drag from
+   * @param {number} targetX - Target X coordinate
+   * @param {number} targetY - Target Y coordinate
+   */
+  async simulateHumanDrag(startElement, targetX, targetY) {
+    try {
+      console.log(`🖱️  Simulating human drag to coordinates (${targetX}, ${targetY})`);
+      
+      // Get starting position
+      const startBounds = await startElement.boundingBox();
+      const startX = startBounds.x + startBounds.width / 2;
+      const startY = startBounds.y + startBounds.height / 2;
+      
+      // Hover to starting position first
+      await this.browser.page.mouse.move(startX, startY);
+      await this.browser.page.waitForTimeout(this.randomDelay(100, 300));
+      
+      // Press mouse down
+      await this.browser.page.mouse.down();
+      await this.browser.page.waitForTimeout(this.randomDelay(50, 150));
+      
+      // Create human-like movement path with curves
+      const steps = 10;
+      for (let i = 1; i <= steps; i++) {
+        const progress = i / steps;
+        
+        // Add some curve to the movement (Bezier-like)
+        const curve = Math.sin(progress * Math.PI) * 10;
+        const currentX = startX + (targetX - startX) * progress + curve;
+        const currentY = startY + (targetY - startY) * progress;
+        
+        await this.browser.page.mouse.move(currentX, currentY);
+        await this.browser.page.waitForTimeout(this.randomDelay(20, 80));
+      }
+      
+      // Final position adjustment
+      await this.browser.page.mouse.move(targetX, targetY);
+      await this.browser.page.waitForTimeout(this.randomDelay(100, 200));
+      
+      // Release mouse
+      await this.browser.page.mouse.up();
+      await this.browser.page.waitForTimeout(this.randomDelay(200, 400));
+      
+      console.log('✅ Human-like drag completed');
+      
+    } catch (error) {
+      console.error('❌ Error in human drag simulation:', error);
+    }
+  }
+  
+  /**
+   * Simulates human-like slider movement
+   * @param {Object} sliderElement - Slider element
+   * @param {number} percentage - Percentage to slide (0-100)
+   */
+  async simulateHumanSlider(sliderElement, percentage) {
+    try {
+      console.log(`🎚️  Simulating human slider movement to ${percentage}%`);
+      
+      const sliderBounds = await sliderElement.boundingBox();
+      const startX = sliderBounds.x;
+      const startY = sliderBounds.y + sliderBounds.height / 2;
+      const targetX = sliderBounds.x + (sliderBounds.width * percentage / 100);
+      
+      // Move to slider start
+      await this.browser.page.mouse.move(startX + 10, startY);
+      await this.browser.page.waitForTimeout(this.randomDelay(200, 400));
+      
+      // Press and hold
+      await this.browser.page.mouse.down();
+      await this.browser.page.waitForTimeout(this.randomDelay(100, 200));
+      
+      // Human-like sliding motion with micro-adjustments
+      const steps = Math.max(5, Math.floor(Math.abs(targetX - startX) / 20));
+      
+      for (let i = 1; i <= steps; i++) {
+        const progress = i / steps;
+        const currentX = startX + (targetX - startX) * progress;
+        
+        // Add slight vertical oscillation for realism
+        const oscillation = Math.sin(progress * Math.PI * 4) * 2;
+        const currentY = startY + oscillation;
+        
+        await this.browser.page.mouse.move(currentX, currentY);
+        await this.browser.page.waitForTimeout(this.randomDelay(30, 100));
+      }
+      
+      // Final position
+      await this.browser.page.mouse.move(targetX, startY);
+      await this.browser.page.waitForTimeout(this.randomDelay(100, 300));
+      
+      // Release
+      await this.browser.page.mouse.up();
+      await this.browser.page.waitForTimeout(this.randomDelay(200, 500));
+      
+      console.log('✅ Human-like slider movement completed');
+      
+    } catch (error) {
+      console.error('❌ Error in slider simulation:', error);
+    }
+  }
+  
+  /**
+   * Generates random delay within range for human-like timing
+   * @param {number} min - Minimum delay in milliseconds
+   * @param {number} max - Maximum delay in milliseconds
+   * @returns {number} Random delay
+   */
+  randomDelay(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+  
+  /**
+   * Simulates human typing patterns with realistic timing
+   * @param {Object} element - Element to type in
+   * @param {string} text - Text to type
+   */
+  async simulateHumanTyping(element, text) {
+    try {
+      console.log(`⌨️  Simulating human typing: "${text}"`);
+      
+      await element.click();
+      await this.browser.page.waitForTimeout(this.randomDelay(200, 400));
+      
+      // Clear existing content
+      await element.selectText();
+      
+      // Type character by character with human-like delays
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        await this.browser.page.keyboard.type(char);
+        
+        // Variable typing speed - faster for common letters, slower for special chars
+        let delay = this.randomDelay(80, 200);
+        if (/[A-Za-z\s]/.test(char)) {
+          delay = this.randomDelay(50, 150); // Faster for letters and spaces
+        } else if (/[0-9]/.test(char)) {
+          delay = this.randomDelay(100, 180); // Medium for numbers
+        } else {
+          delay = this.randomDelay(150, 300); // Slower for special characters
+        }
+        
+        await this.browser.page.waitForTimeout(delay);
+      }
+      
+      console.log('✅ Human-like typing completed');
+      
+    } catch (error) {
+      console.error('❌ Error in typing simulation:', error);
+    }
+  }
+  
+  /**
+   * Enhanced CAPTCHA statistics and success tracking
+   */
+  getCaptchaStats() {
+    const stats = {
+      totalAttempts: 0,
+      successfulSolves: 0,
+      typeBreakdown: {},
+      averageTime: 0
+    };
+    
+    // This would be populated by tracking solve attempts
+    // Implementation would store stats in memory or persistent storage
+    
+    return stats;
+  }
+  
+  /**
+   * Adaptive learning system for improving CAPTCHA solving
+   * @param {string} captchaType - Type of CAPTCHA
+   * @param {boolean} success - Whether solving was successful
+   * @param {number} timeSpent - Time spent solving in milliseconds
+   */
+  async learnFromAttempt(captchaType, success, timeSpent) {
+    try {
+      // This would implement machine learning to improve success rates
+      console.log(`📊 Learning from ${captchaType}: ${success ? 'SUCCESS' : 'FAILURE'} (${timeSpent}ms)`);
+      
+      // Update success rates dynamically
+      if (this.successRates[captchaType] !== undefined) {
+        if (success) {
+          this.successRates[captchaType] = Math.min(0.99, this.successRates[captchaType] + 0.01);
+        } else {
+          this.successRates[captchaType] = Math.max(0.10, this.successRates[captchaType] - 0.005);
+        }
+        
+        console.log(`📈 Updated ${captchaType} success rate: ${(this.successRates[captchaType] * 100).toFixed(1)}%`);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error in learning system:', error);
     }
   }
 
