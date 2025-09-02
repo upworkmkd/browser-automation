@@ -29,15 +29,22 @@ export class CaptchaHandler {
     };
     
     // Success rates for different CAPTCHA types
+    // Checkbox should ALWAYS have higher priority than image challenges
     this.successRates = {
-      [this.CAPTCHA_TYPES.RECAPTCHA_V2_CHECKBOX]: 0.95,
-      [this.CAPTCHA_TYPES.RECAPTCHA_V2_IMAGE]: 0.90,
+      [this.CAPTCHA_TYPES.RECAPTCHA_V2_CHECKBOX]: 0.98, // Highest priority
       [this.CAPTCHA_TYPES.MATH_CAPTCHA]: 0.95,
-      [this.CAPTCHA_TYPES.TEXT_CAPTCHA]: 0.85,
-      [this.CAPTCHA_TYPES.PUZZLE_JIGSAW]: 0.80,
+      [this.CAPTCHA_TYPES.RECAPTCHA_V2_IMAGE]: 0.90, // Lower than checkbox
+      [this.CAPTCHA_TYPES.RECAPTCHA_V2_INVISIBLE]: 0.88,
       [this.CAPTCHA_TYPES.PUZZLE_SLIDER]: 0.85,
+      [this.CAPTCHA_TYPES.TEXT_CAPTCHA]: 0.85,
+      [this.CAPTCHA_TYPES.RECAPTCHA_V3]: 0.82,
+      [this.CAPTCHA_TYPES.PUZZLE_JIGSAW]: 0.80,
+      [this.CAPTCHA_TYPES.CLOUDFLARE_TURNSTILE]: 0.78,
       [this.CAPTCHA_TYPES.HCAPTCHA]: 0.75,
-      [this.CAPTCHA_TYPES.FUNCAPTCHA]: 0.70
+      [this.CAPTCHA_TYPES.HCAPTCHA_IMAGE]: 0.72,
+      [this.CAPTCHA_TYPES.FUNCAPTCHA]: 0.70,
+      [this.CAPTCHA_TYPES.PUZZLE_ROTATION]: 0.65,
+      [this.CAPTCHA_TYPES.CUSTOM]: 0.50
     };
   }
 
@@ -210,8 +217,11 @@ export class CaptchaHandler {
    */
   async detectRecaptcha() {
     return await this.browser.page.evaluate(() => {
+      console.log('🔍 Detecting reCAPTCHA types...');
+      
       // Check for reCAPTCHA v3 first (no UI, just script)
       if (window.grecaptcha && window.grecaptcha.enterprise) {
+        console.log('✅ Found reCAPTCHA v3');
         return 'recaptcha-v3';
       }
       
@@ -223,25 +233,13 @@ export class CaptchaHandler {
       
       for (const selector of invisibleSelectors) {
         if (document.querySelector(selector)) {
+          console.log('✅ Found reCAPTCHA v2 invisible:', selector);
           return 'recaptcha-v2-invisible';
         }
       }
       
-      // Check for reCAPTCHA v2 image challenge
-      const challengeSelectors = [
-        'iframe[title*="recaptcha challenge"]',
-        'iframe[src*="recaptcha/api2/bframe"]',
-        'div[class*="recaptcha-challenge"]'
-      ];
-      
-      for (const selector of challengeSelectors) {
-        const element = document.querySelector(selector);
-        if (element) {
-          return 'recaptcha-v2-image';
-        }
-      }
-      
-      // Check for reCAPTCHA v2 checkbox
+      // IMPORTANT: Check for reCAPTCHA v2 checkbox FIRST
+      // Even if a challenge iframe exists, we need to click the checkbox first
       const checkboxSelectors = [
         'iframe[title*="reCAPTCHA"]',
         'iframe[src*="recaptcha"]', 
@@ -255,10 +253,39 @@ export class CaptchaHandler {
       for (const selector of checkboxSelectors) {
         const element = document.querySelector(selector);
         if (element) {
-          return 'recaptcha-v2-checkbox';
+          console.log('🔍 Found reCAPTCHA element:', selector, 'visible:', element.offsetWidth > 0 && element.offsetHeight > 0);
+          // Check if this is the main reCAPTCHA checkbox (not the challenge)
+          if (!selector.includes('challenge') && !selector.includes('bframe')) {
+            console.log('✅ Detected reCAPTCHA v2 checkbox (priority)');
+            return 'recaptcha-v2-checkbox';
+          }
         }
       }
       
+      // Only check for image challenge if it's VISIBLE (not hidden)
+      // A hidden challenge iframe means we haven't clicked the checkbox yet
+      const challengeSelectors = [
+        'iframe[title*="recaptcha challenge"]',
+        'iframe[src*="recaptcha/api2/bframe"]',
+        'div[class*="recaptcha-challenge"]'
+      ];
+      
+      for (const selector of challengeSelectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          const isVisible = element.offsetWidth > 0 && element.offsetHeight > 0;
+          console.log('🔍 Found challenge iframe:', selector, 'visible:', isVisible);
+          
+          if (isVisible) {
+            console.log('✅ Detected visible reCAPTCHA v2 image challenge');
+            return 'recaptcha-v2-image';
+          } else {
+            console.log('⚠️  Challenge iframe exists but is hidden - checkbox likely needs to be clicked first');
+          }
+        }
+      }
+      
+      console.log('❌ No reCAPTCHA detected');
       return null;
     });
   }
@@ -528,73 +555,141 @@ export class CaptchaHandler {
     try {
       console.log('🎯 Attempting to solve reCAPTCHA v2 checkbox...');
       
+      // Debug: Check what reCAPTCHA elements exist
+      await this.browser.page.evaluate(() => {
+        const allIframes = document.querySelectorAll('iframe');
+        console.log(`🔍 Found ${allIframes.length} iframes on page`);
+        allIframes.forEach((iframe, index) => {
+          console.log(`  ${index}: ${iframe.src || 'no src'} - title: "${iframe.title || 'no title'}" - visible: ${iframe.offsetWidth > 0 && iframe.offsetHeight > 0}`);
+        });
+      });
+      
       // Wait for the reCAPTCHA iframe to load
       await this.browser.page.waitForSelector('iframe[title*="reCAPTCHA"], iframe[src*="recaptcha"]', { timeout: 10000 });
       
-      // Get the reCAPTCHA iframe
-      const recaptchaFrameElement = await this.browser.page.$('iframe[title*="reCAPTCHA"], iframe[src*="recaptcha"]');
+      // Get the reCAPTCHA iframe (not the challenge iframe)
+      const recaptchaFrameElement = await this.browser.page.$('iframe[title*="reCAPTCHA"]:not([title*="challenge"])');
       if (!recaptchaFrameElement) {
-        console.log('⚠️  Could not find reCAPTCHA iframe element');
-        return false;
+        console.log('⚠️  Could not find main reCAPTCHA iframe element, trying alternative selectors...');
+        
+        // Try alternative approach
+        const altFrame = await this.browser.page.$('iframe[src*="recaptcha"]:not([src*="bframe"])');
+        if (!altFrame) {
+          console.log('⚠️  Could not find any suitable reCAPTCHA iframe');
+          return false;
+        }
+        console.log('✅ Found alternative reCAPTCHA iframe');
       }
       
-      const recaptchaFrame = await recaptchaFrameElement.contentFrame();
+      const finalFrame = recaptchaFrameElement || await this.browser.page.$('iframe[src*="recaptcha"]:not([src*="bframe"])');
+      const recaptchaFrame = await finalFrame.contentFrame();
+      
       if (!recaptchaFrame) {
         console.log('⚠️  Could not access reCAPTCHA iframe content');
         return false;
       }
       
+      console.log('✅ Successfully accessed reCAPTCHA iframe content');
+      
       // Look for the checkbox within the iframe
+      console.log('🔍 Looking for checkbox inside iframe...');
       const checkbox = await recaptchaFrame.$('span[role="checkbox"], div[role="checkbox"], .recaptcha-checkbox');
       
       // Click the checkbox
       if (checkbox) {
+        console.log('✅ Found checkbox, clicking...');
         await checkbox.click();
+        console.log('✅ Clicked reCAPTCHA checkbox successfully');
       } else {
+        // Debug what's in the iframe
+        const iframeContent = await recaptchaFrame.evaluate(() => {
+          return {
+            html: document.body.innerHTML.substring(0, 200),
+            elements: Array.from(document.querySelectorAll('*')).map(el => ({
+              tag: el.tagName,
+              role: el.getAttribute('role'),
+              class: el.className,
+              id: el.id
+            })).slice(0, 10)
+          };
+        });
+        console.log('🔍 iframe content:', iframeContent);
         throw new Error('Could not find reCAPTCHA checkbox');
       }
-      console.log('✅ Clicked reCAPTCHA checkbox');
       
       // Wait to see if it's solved or if we need to do image challenge
       await this.browser.page.waitForTimeout(3000);
       
-      // FIRST: Check if the login button is now enabled (important case!)
+      // Wait longer for potential image challenge to appear
+      console.log('🔍 Waiting for CAPTCHA response after checkbox click...');
+      await this.browser.page.waitForTimeout(2000);
+      
+      // Check if an image challenge appeared FIRST (more reliable than button state)
+      console.log('🔍 Checking if image challenge appeared...');
+      const imageChallenge = await this.browser.page.evaluate(() => {
+        const challengeIframe = document.querySelector('iframe[title*="recaptcha challenge"]');
+        const isVisible = challengeIframe && challengeIframe.offsetWidth > 0 && challengeIframe.offsetHeight > 0;
+        console.log('Challenge iframe found:', !!challengeIframe, 'visible:', isVisible);
+        return isVisible;
+      });
+      
+      if (imageChallenge) {
+        console.log('🖼️  Image challenge appeared and is visible, solving...');
+        return await this.handleRecaptchaV2ImageChallenge();
+      }
+      
+      // If no image challenge, THEN check if login button is enabled
+      console.log('🔍 No image challenge detected, checking if login button is now enabled...');
       const isLoginButtonEnabled = await this.isLoginButtonEnabled();
       if (isLoginButtonEnabled) {
         console.log('✅ Login button is now enabled after CAPTCHA checkbox click!');
         return true;
       }
       
-      // If login button still disabled, check if an image challenge appeared
-      const imageChallenge = await this.browser.page.evaluate(() => {
-        return document.querySelector('iframe[title*="recaptcha challenge"]') !== null;
+      // Final comprehensive check
+      console.log('🔍 Performing final CAPTCHA completion check...');
+      
+      // Check if there's still a hidden challenge iframe (indicates incomplete CAPTCHA)
+      const hasHiddenChallenge = await this.browser.page.evaluate(() => {
+        const challengeIframe = document.querySelector('iframe[title*="recaptcha challenge"]');
+        const isHidden = challengeIframe && challengeIframe.offsetWidth === 0 && challengeIframe.offsetHeight === 0;
+        console.log('Hidden challenge iframe exists:', !!challengeIframe && isHidden);
+        return isHidden;
       });
       
-      if (imageChallenge) {
-        console.log('🖼️  Image challenge appeared, solving...');
-        return await this.handleRecaptchaV2ImageChallenge();
+      if (hasHiddenChallenge) {
+        console.log('⚠️  Hidden challenge iframe detected - CAPTCHA not fully solved');
+        console.log('💡 This usually means an image challenge should appear but didn\'t become visible');
+        return false;
       }
       
-      // Check if checkbox is now checked (fallback check)
-      const isChecked = await this.browser.page.evaluate(() => {
-        return document.querySelector('iframe[title*="reCAPTCHA"]') && 
-               !document.querySelector('iframe[title*="recaptcha challenge"]');
+      // Check if checkbox appears solved (no challenge iframe at all)
+      const isFullySolved = await this.browser.page.evaluate(() => {
+        const mainFrame = document.querySelector('iframe[title*="reCAPTCHA"]:not([title*="challenge"])');
+        const challengeFrame = document.querySelector('iframe[title*="recaptcha challenge"]');
+        
+        // CAPTCHA is fully solved if:
+        // 1. Main reCAPTCHA iframe exists
+        // 2. No challenge iframe exists (or it's completely gone)
+        const solved = mainFrame && !challengeFrame;
+        console.log('Main reCAPTCHA iframe:', !!mainFrame, 'Challenge iframe:', !!challengeFrame, 'Fully solved:', solved);
+        return solved;
       });
       
-      if (isChecked) {
-        console.log('✅ reCAPTCHA checkbox appears solved, but login button still disabled');
+      if (isFullySolved) {
+        console.log('✅ reCAPTCHA appears fully solved, checking login button one final time...');
         // Wait a bit more and check login button again
         await this.browser.page.waitForTimeout(2000);
-        const isLoginButtonEnabledNow = await this.isLoginButtonEnabled();
-        if (isLoginButtonEnabledNow) {
-          console.log('✅ Login button enabled after additional wait!');
+        const isLoginButtonEnabledFinal = await this.isLoginButtonEnabled();
+        if (isLoginButtonEnabledFinal) {
+          console.log('✅ Login button enabled - CAPTCHA successfully solved!');
           return true;
         } else {
-          console.log('⚠️  Login button still disabled despite checkbox being checked');
+          console.log('⚠️  Login button still disabled despite CAPTCHA appearing solved');
           return false;
         }
       } else {
-        console.log('⚠️  Checkbox click didn\'t solve CAPTCHA immediately');
+        console.log('⚠️  CAPTCHA does not appear to be fully solved');
         return false;
       }
       
@@ -617,8 +712,30 @@ export class CaptchaHandler {
         return false;
       }
       
-      // Wait for the challenge iframe to load
-      await this.browser.page.waitForSelector('iframe[title*="recaptcha challenge"]', { timeout: 10000 });
+      // Wait for the challenge iframe to become visible (not just exist)
+      console.log('🔍 Waiting for challenge iframe to become visible...');
+      
+      // The iframe might already exist but be hidden, so we wait for it to become visible
+      let challengeVisible = false;
+      for (let i = 0; i < 20; i++) {  // Wait up to 10 seconds (20 * 500ms)
+        const isVisible = await this.browser.page.evaluate(() => {
+          const challengeIframe = document.querySelector('iframe[title*="recaptcha challenge"]');
+          return challengeIframe && challengeIframe.offsetWidth > 0 && challengeIframe.offsetHeight > 0;
+        });
+        
+        if (isVisible) {
+          challengeVisible = true;
+          console.log('✅ Challenge iframe became visible');
+          break;
+        }
+        
+        await this.browser.page.waitForTimeout(500);
+      }
+      
+      if (!challengeVisible) {
+        console.log('⚠️  Challenge iframe never became visible');
+        return false;
+      }
       
       // Get the challenge iframe - use frame() instead of frameLocator()
       const challengeFrameElement = await this.browser.page.$('iframe[title*="recaptcha challenge"]');
@@ -723,12 +840,18 @@ export class CaptchaHandler {
       }
       
       // Optional: Save debug screenshot if environment variable is set
-      if (process.env.DEBUG_CAPTCHA_SCREENSHOTS === 'true') {
-        const fs = await import('fs');
-        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-        const debugPath = `captcha-challenge-${timestamp}.png`;
-        fs.writeFileSync(debugPath, challengeImage);
-        console.log(`📸 Debug: Challenge image saved to ${debugPath}`);
+      if (process.env.DEBUG_CAPTCHA_SCREENSHOTS === 'true' || process.env.DEBUG_CAPTCHA === 'true') {
+        try {
+          const fs = await import('fs');
+          const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+          const cleanInstruction = instruction.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+          const debugPath = `captcha-${cleanInstruction}-${timestamp}.png`;
+          fs.writeFileSync(debugPath, challengeImage);
+          console.log(`📸 Debug: Challenge image saved to ${debugPath}`);
+          console.log(`🔍 Debug: Instruction was "${instruction}"`);
+        } catch (e) {
+          console.log('⚠️  Could not save debug screenshot:', e.message);
+        }
       }
       
       // Use OpenAI Vision to analyze the image
@@ -742,50 +865,65 @@ export class CaptchaHandler {
       console.log(`🎯 AI identified ${solution.length} squares to click: [${solution.join(', ')}]`);
       
       // Click on the identified image squares with improved selectors
+      // IMPORTANT: imageIndex is 0-based, so square 0 is the first square
       for (const imageIndex of solution) {
         try {
-          // Try multiple ways to select the tile
+          console.log(`🎯 Attempting to click square at index ${imageIndex} (0-based)`);
+          
+          // Try multiple ways to select the tile - USE ZERO-BASED INDEXING
           let clicked = false;
           
-          const selectors = [
-            `.rc-imageselect-tile:nth-child(${imageIndex + 1})`,
-            `td:nth-child(${imageIndex + 1})`,
-            `.rc-imageselect-tile`
-          ];
+          // Method 1: Use array indexing (most reliable)
+          try {
+            const imageSquares = await challengeFrame.$$('.rc-imageselect-tile');
+            console.log(`Found ${imageSquares.length} image tiles total`);
+            
+            if (imageSquares[imageIndex]) {
+              await imageSquares[imageIndex].click();
+              console.log(`✅ Clicked image square at index ${imageIndex} using array indexing`);
+              clicked = true;
+            }
+          } catch (e) {
+            console.log(`⚠️  Array indexing failed for square ${imageIndex}:`, e.message);
+          }
           
-          for (const selector of selectors) {
+          // Method 2: CSS nth-child selector (1-based, so add 1 to index)
+          if (!clicked) {
             try {
-              if (selector === '.rc-imageselect-tile') {
-                const imageSquares = await challengeFrame.$$(selector);
-                if (imageSquares[imageIndex]) {
-                  await imageSquares[imageIndex].click();
-                  clicked = true;
-                }
-              } else {
-                const imageSquare = await challengeFrame.$(selector);
-                if (imageSquare) {
-                  await imageSquare.click();
-                  clicked = true;
-                }
-              }
-              
-              if (clicked) {
-                console.log(`✅ Clicked image square ${imageIndex + 1} using ${selector}`);
-                break;
+              const nthChildSelector = `.rc-imageselect-tile:nth-child(${imageIndex + 1})`;
+              const imageSquare = await challengeFrame.$(nthChildSelector);
+              if (imageSquare) {
+                await imageSquare.click();
+                console.log(`✅ Clicked image square at index ${imageIndex} using nth-child(${imageIndex + 1})`);
+                clicked = true;
               }
             } catch (e) {
-              continue;
+              console.log(`⚠️  nth-child selector failed for square ${imageIndex}:`, e.message);
+            }
+          }
+          
+          // Method 3: Table cell approach
+          if (!clicked) {
+            try {
+              const tableCells = await challengeFrame.$$('td');
+              if (tableCells[imageIndex]) {
+                await tableCells[imageIndex].click();
+                console.log(`✅ Clicked image square at index ${imageIndex} using table cell`);
+                clicked = true;
+              }
+            } catch (e) {
+              console.log(`⚠️  Table cell approach failed for square ${imageIndex}:`, e.message);
             }
           }
           
           if (!clicked) {
-            console.error(`❌ Could not click image square ${imageIndex + 1}`);
+            console.error(`❌ Could not click image square at index ${imageIndex} with any method`);
           } else {
-            await this.browser.page.waitForTimeout(800); // Slightly longer wait between clicks
+            await this.browser.page.waitForTimeout(800); // Wait between clicks
           }
           
         } catch (error) {
-          console.error(`❌ Error clicking image square ${imageIndex + 1}:`, error);
+          console.error(`❌ Error clicking image square at index ${imageIndex}:`, error);
         }
       }
       
@@ -874,7 +1012,7 @@ export class CaptchaHandler {
         messages: [
           {
             role: "system",
-            content: `You are an expert CAPTCHA solver. You will analyze a reCAPTCHA image grid and identify which squares match the given instruction.
+            content: `You are an expert CAPTCHA solver with exceptional visual recognition abilities. You will analyze a reCAPTCHA image grid and identify which squares contain the specified objects.
 
 CRITICAL INFORMATION:
 - The image shows a ${gridInfo.gridType} grid with ${gridInfo.totalTiles} total squares
@@ -887,27 +1025,35 @@ CRITICAL INFORMATION:
     'Row 1: [0,1,2,3], Row 2: [4,5,6,7], Row 3: [8,9,10,11], Row 4: [12,13,14,15]' :
     `Grid has ${gridInfo.rows} rows and ${gridInfo.cols} columns`}
 
-TASK: Look at each square carefully and identify ALL squares that contain the object(s) mentioned in the instruction.
+VISUAL ANALYSIS INSTRUCTIONS:
+- Examine each square individually and carefully
+- Look for both full objects and partial objects that extend across square boundaries
+- Consider objects that may be partially obscured or at different angles
+- Pay attention to distinctive features of the target object (wheels, handlebars for motorcycles, etc.)
+- Be especially careful with similar objects (motorcycles vs bicycles, cars vs trucks)
 
-RESPONSE FORMAT: Return ONLY a JSON array of numbers (zero-based indices).
-Examples: [0, 2, 5] or [1, 4, 7, 8] or [] if no matches
+RESPONSE FORMAT: Return ONLY a plain JSON array of numbers (zero-based indices).
+- CORRECT: [0, 2, 5] or [1, 4, 7, 8] or []
+- INCORRECT: \`\`\`json [0, 2, 5] \`\`\` (no markdown formatting)
 
-Be thorough but conservative - only select squares where you're confident the object is present.`
+ACCURACY IS CRITICAL: Only select squares where you are highly confident the target object is present. False positives will cause CAPTCHA failure.`
           },
           {
             role: "user",
             content: [
               {
                 type: "text",
-                text: `INSTRUCTION: "${instruction}"
+                text: `TARGET OBJECT: "${instruction}"
 
-Analyze this ${gridInfo.gridType} grid image carefully. Which squares contain the objects mentioned in the instruction?
+Analyze this ${gridInfo.gridType} grid image with extreme care. Examine each of the ${gridInfo.totalTiles} squares to identify which ones contain the target object.
 
-Remember:
-- Look at ALL ${gridInfo.totalTiles} squares
-- Use zero-based indexing (0 to ${gridInfo.totalTiles - 1})
-- Only return the JSON array of indices, nothing else
-- Be thorough but only select squares where you're confident`
+STEP-BY-STEP PROCESS:
+1. Identify the key visual features of "${instruction.replace(/select all (squares with|images with|images of)/i, '')}"
+2. Examine each square from 0 to ${gridInfo.totalTiles - 1}
+3. Only include squares where you can clearly identify the target object
+4. Return ONLY the JSON array of indices
+
+Critical reminder: Use zero-based indexing (0 to ${gridInfo.totalTiles - 1}) and return plain JSON only.`
               },
               {
                 type: "image_url",
@@ -926,9 +1072,19 @@ Remember:
       const content = response.choices[0].message.content.trim();
       console.log('🤖 AI response:', content);
       
+      // Clean the response - remove markdown formatting if present
+      let cleanedContent = content.trim();
+      
+      // Remove markdown code blocks if present
+      if (cleanedContent.includes('```')) {
+        cleanedContent = cleanedContent.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+      }
+      
+      console.log('🔧 Cleaned AI response:', cleanedContent);
+      
       // Parse the JSON response
       try {
-        const solution = JSON.parse(content);
+        const solution = JSON.parse(cleanedContent);
         if (Array.isArray(solution)) {
           // Validate indices are within range
           const validSolution = solution.filter(index => 
@@ -947,10 +1103,10 @@ Remember:
           console.error('❌ AI response is not an array');
         }
       } catch (parseError) {
-        console.error('❌ Error parsing AI response:', parseError);
+        console.error('❌ Error parsing cleaned AI response:', parseError);
         
         // Try to extract numbers from the response even if JSON parsing failed
-        const numbers = content.match(/\d+/g);
+        const numbers = cleanedContent.match(/\d+/g);
         if (numbers) {
           const extractedSolution = numbers
             .map(num => parseInt(num))
@@ -1605,13 +1761,28 @@ Remember:
    */
   async isLoginButtonEnabled() {
     return await this.browser.page.evaluate(() => {
+      console.log('🔍 Checking login button state...');
+      
       const loginButtons = document.querySelectorAll('button[type="submit"], button, input[type="submit"]');
-      for (const button of loginButtons) {
+      console.log(`Found ${loginButtons.length} potential login buttons`);
+      
+      for (let i = 0; i < loginButtons.length; i++) {
+        const button = loginButtons[i];
         const text = button.textContent || button.value || '';
-        if (text.toLowerCase().includes('log') || text.toLowerCase().includes('sign')) {
-          return !button.disabled && !button.hasAttribute('disabled');
+        const isLoginButton = text.toLowerCase().includes('log') || text.toLowerCase().includes('sign');
+        
+        if (isLoginButton) {
+          const isEnabled = !button.disabled && !button.hasAttribute('disabled') && 
+                           button.style.pointerEvents !== 'none' && 
+                           !button.classList.contains('disabled');
+          
+          console.log(`Login button ${i}: "${text.trim()}" - enabled: ${isEnabled}, disabled attr: ${button.disabled}, hasDisabledAttr: ${button.hasAttribute('disabled')}, pointerEvents: ${button.style.pointerEvents}, classes: ${button.className}`);
+          
+          return isEnabled;
         }
       }
+      
+      console.log('⚠️  No login button found');
       return true; // Default to enabled if can't find login button
     });
   }
